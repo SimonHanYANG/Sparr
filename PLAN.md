@@ -616,7 +616,11 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - 前端：简历列表（上传+状态轮询）、卡片式在线简历、结构化编辑器（保存即新版本）、版本历史/回滚、解析原文对照；UI 自查通过（DOM 断言：编辑→保存→版本历史全链路）
   - MinerU 双模式策略（按官方文档 https://mineru.net/apiManage/docs 实现）：**🎯 精准解析优先**（`full_zip_url` 取 `full.md`，`model_version=vlm`）→ 队列超过 `MINERU_ACCURATE_PATIENCE`（默认 300s）**降级 ⚡ Agent 轻量解析**（`/api/v1/agent/parse/*`，免 token，`markdown_url` 直取）——已用真实 CV 实测：精准超时降级后轻量解析成功（5209 字符/228 行）
   - LLM 双模型实战验证 — 2026-10-02：DeepSeek 与 MiMo（Token Plan `tp-` key → `token-plan-cn` 集群、`mimo-v2.6-pro`，双鉴权头兼容）均跑通真实 CV 抽取；设置页三凭据卡 + **大模型偏好选择器**（provider+model 自选，`/api/auth/preferences`）；抽取 prompt 加固（技能宁多勿漏）；修复重解析版本号冲突（追加 vN+1 并记录所用模型）— 22 测试全绿
-- [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
+- [x] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页 — 2026-10-02 · `feature/phase-2-profiling`
+  - 岗位库：JobPosition（加权技能矩阵 + 考点/代码题/面试重点/项目亲和标签）× 12 岗位（后端/前端/算法/产品/数据/测试/运维 × 实习/校招/社招），`seed_jobs` 幂等灌库
+  - 画像引擎（**纯规则、零 LLM、可复现**）：技能两遍归一化（精确优先，防 "pytorch→py" 误配）、项目打标、经验定级、方向打分、岗位匹配打分（技能 0.55 + 标签 0.3 + 经验 0.15 − 必会缺口惩罚）→ 可解释推荐（matched/gaps/reasons）
+  - **样本集回归测试守住"必须准"**：后端/算法/产品/前端四份标准简历全部 rank-1 命中正确方向（9 引擎测试 + 37 全量全绿）
+  - API：profiling/compute·portrait + jobs 浏览（类别/级别筛选）；前端：画像页（方向条/优势/项目标签/Top-8 推荐卡带证据与补强提示）+ 岗位库页（筛选/展开详情），导航新增"画像"
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收
 - [ ] **Phase 4**：F3 基础笔试 + 代码笔试（组卷 / 判卷 / CodeMirror）
 - [ ] **Phase 5**：F4 综合总结报告 + 简历 diff 修改建议闭环

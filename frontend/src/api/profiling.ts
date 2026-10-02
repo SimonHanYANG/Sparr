@@ -51,9 +51,12 @@ export const computePortrait = (resume_id?: number) =>
 export const analyzeCatalogStream = (
   onEval: (ev: MatchEval, progress: { done: number; total: number }) => void,
   onDone: (progress: { done: number; total: number }) => void,
+  onMeta?: (meta: { total: number; candidates?: number; model?: string }) => void,
 ) =>
   apiStream('/api/jobs/analyze-catalog/stream', {}, (event, data) => {
-    if (event === 'eval') {
+    if (event === 'meta') {
+      onMeta?.(data as unknown as { total: number; candidates?: number; model?: string })
+    } else if (event === 'eval') {
       onEval(data as unknown as MatchEval, (data.progress as { done: number; total: number }) ?? { done: 0, total: 0 })
     } else if (event === 'done') {
       onDone({ done: (data.done as number) ?? 0, total: (data.total as number) ?? 0 })

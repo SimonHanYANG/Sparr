@@ -12,7 +12,8 @@ from apps.jobs.management.commands.seed_jobs import JOBS
 from apps.jobs.models import JobPosition
 from apps.resumes.models import Resume, ResumeVersion
 
-from .engine import compute_portrait, experience_level, normalize_skills, recommend, tag_projects
+from .engine import (compute_portrait, experience_level, normalize_skills,
+                     recommend, select_candidate_jobs, tag_projects)
 
 
 def seed_jobs():
@@ -200,3 +201,43 @@ class ProfilingApiTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertTrue(all(j["category"] == "算法" for j in resp.json()))
         self.assertGreater(len(resp.json()), 0)
+
+
+class CandidateSelectionTests(TestCase):
+    """Adaptive candidate count: >=5 always, varies per person (user requirement)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        seed_jobs()
+
+    def _jobs(self):
+        return list(JobPosition.objects.filter(is_active=True))
+
+    def test_weak_portrait_still_gets_at_least_five(self):
+        portrait = compute_portrait({
+            "basics": {"years_exp": "应届"}, "skills": [], "projects": [],
+            "work_experiences": [], "education": [], "awards": [],
+        })
+        picked = select_candidate_jobs(self._jobs(), portrait)
+        self.assertGreaterEqual(len(picked), 5)
+
+    def test_strong_backend_portrait_selects_fewer_and_on_target(self):
+        portrait = compute_portrait(sample_backend())
+        picked = select_candidate_jobs(self._jobs(), portrait)
+        self.assertGreaterEqual(len(picked), 5)
+        self.assertLessEqual(len(picked), 12)
+        # the top-scoring pick must be a backend role
+        self.assertEqual(picked[0].category, "后端")
+
+    def test_count_is_adaptive_not_fixed(self):
+        counts = set()
+        for sample in (sample_backend(), sample_algorithm(), sample_product(), sample_frontend()):
+            portrait = compute_portrait(sample)
+            counts.add(len(select_candidate_jobs(self._jobs(), portrait)))
+        # at least some variation across directions (not one fixed number)
+        self.assertGreater(len(counts), 1)
+
+    def test_intern_jobs_excluded_for_social_candidate(self):
+        portrait = compute_portrait(sample_backend())  # 3 年 -> 社招
+        picked = select_candidate_jobs(self._jobs(), portrait)
+        self.assertTrue(all(j.level != "实习" for j in picked))

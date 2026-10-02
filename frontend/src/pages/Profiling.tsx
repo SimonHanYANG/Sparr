@@ -117,6 +117,7 @@ export default function Profiling() {
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
+  const [selectedCount, setSelectedCount] = useState(0)
 
   const { data: portraitResult } = useQuery({
     queryKey: ['profiling'],
@@ -139,6 +140,10 @@ export default function Profiling() {
           setProgress(prog)
         },
         (prog) => setProgress(prog),
+        (meta) => {
+          setSelectedCount(meta.total)
+          setProgress((p) => ({ ...p, total: meta.total }))
+        },
       )
     } catch {
       setError(t('profiling.analyzeFailed'))
@@ -252,13 +257,17 @@ export default function Profiling() {
                     total: progress.total || 12,
                   })}
                 </span>
-                <span className="text-faint">{t('profiling.streamHint')}</span>
+                <span className="text-faint">
+                  {selectedCount > 0
+                    ? t('profiling.selectedHint', { count: selectedCount })
+                    : t('profiling.streamHint')}
+                </span>
               </div>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface">
                 <div
                   className="h-full rounded-full bg-accent transition-all duration-500"
                   style={{
-                    width: `${Math.round((progress.done / (progress.total || 12)) * 100)}%`,
+                    width: `${Math.round((progress.done / progress.total) * 100)}%`,
                   }}
                 />
               </div>
@@ -272,7 +281,7 @@ export default function Profiling() {
 
             {/* skeletons while waiting for the first cards */}
             {streaming &&
-              Array.from({ length: Math.min(2, (progress.total || 12) - progress.done) }).map(
+              Array.from({ length: Math.min(2, progress.total - progress.done) }).map(
                 (_, i) => <SkeletonCard key={`sk-${i}`} />,
               )}
           </div>
@@ -283,7 +292,7 @@ export default function Profiling() {
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
               <span className="text-[12.5px] text-muted">
                 {t('profiling.tailLoading', {
-                  count: Math.max((progress.total || 12) - progress.done, 0),
+                  count: Math.max(progress.total - progress.done, 0),
                 })}
               </span>
             </div>

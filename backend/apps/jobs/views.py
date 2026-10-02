@@ -5,6 +5,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from apps.accounts.llm import pick_llm
+from apps.profiling.engine import compute_portrait, select_candidate_jobs
 from apps.resumes.models import Resume, ResumeVersion
 from core.llm_adapter import LLMClient
 
@@ -152,7 +153,9 @@ def analyze_catalog_view(request):
     if err:
         return err
 
-    jobs = list(JobPosition.objects.filter(is_active=True))
+    all_jobs = list(JobPosition.objects.filter(is_active=True))
+    portrait = compute_portrait(version.structured_json)
+    jobs = select_candidate_jobs(all_jobs, portrait)  # adaptive: >=5, fits vary
     try:
         evals = analyze_catalog(llm, version.structured_json, jobs)
     except ValueError as exc:
@@ -185,7 +188,9 @@ def analyze_catalog_stream(request):
     if err:
         return err
 
-    jobs = list(JobPosition.objects.filter(is_active=True))
+    all_jobs = list(JobPosition.objects.filter(is_active=True))
+    portrait = compute_portrait(version.structured_json)
+    jobs = select_candidate_jobs(all_jobs, portrait)  # adaptive: >=5, fits vary
 
     import queue as queue_mod
 
@@ -207,7 +212,8 @@ def analyze_catalog_stream(request):
 
     def event_iter():
         by_id = {j.id: j for j in jobs}
-        yield sse_event("meta", {"total": len(jobs), "model": f"{llm.provider}/{llm.model}"})
+        yield sse_event("meta", {"total": len(jobs), "candidates": len(all_jobs),
+                          "model": f"{llm.provider}/{llm.model}"})
         finished = 0
         while True:
             kind, data = q.get()

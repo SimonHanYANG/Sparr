@@ -202,3 +202,32 @@ def direction_scores(jobs, portrait: dict) -> dict[str, float]:
     for job in jobs:
         by_cat.setdefault(job.category, []).append(score_job(job, portrait)["score"])
     return {cat: round(max(scores) * 100) for cat, scores in sorted(by_cat.items())}
+
+
+def select_candidate_jobs(jobs, portrait: dict, *, min_n: int = 5, max_n: int = 12,
+                          ratio: float = 0.55) -> list:
+    """Pick the positions worth LLM-精评 (user requirement: don't analyze all).
+
+    Adaptive count — whoever fits more roles gets more; NEVER fewer than min_n:
+    1. drop level-mismatched jobs (exp adjacency < 0.7),
+    2. rule-rank the rest, keep those scoring >= ratio x best (relative cutoff
+       adapts to how broadly the candidate fits),
+    3. clamp to [min_n, max_n] (pad with next-best / trim tail).
+    """
+    scored = []
+    for job in jobs:
+        result = score_job(job, portrait)
+        if result["sub_scores"]["experience"] >= 0.7:  # level matches or adjacent
+            scored.append((result["score"], job))
+    scored.sort(key=lambda x: -x[0])
+
+    if not scored:
+        return list(jobs)[:max_n]
+
+    best = scored[0][0]
+    threshold = best * ratio
+    picked = [job for score, job in scored if score >= threshold]
+
+    if len(picked) < min_n:
+        picked = [job for _, job in scored[:min_n]]
+    return picked[:max_n]

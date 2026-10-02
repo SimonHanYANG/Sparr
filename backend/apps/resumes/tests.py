@@ -54,6 +54,28 @@ class UploadTests(APITestCase):
         resp = self.client.post("/api/resumes/upload", {})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_blank_resume_creation(self):
+        """Manual entry without PDF: empty structured v1, no parse dispatched."""
+        with patch("apps.resumes.views.dispatch") as mock_dispatch:
+            resp = self.client.post("/api/resumes/blank", {"title": "手填简历"})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        mock_dispatch.assert_not_called()
+        body = resp.json()
+        self.assertEqual(body["parse_status"], "parsed")
+        self.assertEqual(body["current_version"]["version_no"], 1)
+
+    def test_replace_pdf_triggers_reparse(self):
+        with patch("apps.resumes.views.dispatch") as mock_dispatch:
+            r = self.client.post("/api/resumes/upload", {
+                "file": SimpleUploadedFile("a.pdf", pdf_bytes(), content_type="application/pdf")})
+            rid = r.json()["id"]
+            resp = self.client.post(f"/api/resumes/{rid}/replace", {
+                "file": SimpleUploadedFile("b.pdf", pdf_bytes(), content_type="application/pdf")})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["source_filename"], "b.pdf")
+        self.assertEqual(resp.json()["parse_status"], "uploaded")
+        mock_dispatch.assert_called_with("parse_resume_task", rid)
+
 
 @override_settings(MEDIA_ROOT=TMP_MEDIA)
 class ParsePipelineTests(APITestCase):

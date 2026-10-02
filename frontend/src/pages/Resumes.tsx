@@ -1,10 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
-import { deleteResume, listResumes, reparseResume, uploadResume } from '../api/resumes'
+import {
+  createBlankResume,
+  deleteResume,
+  listResumes,
+  reparseResume,
+  uploadResume,
+} from '../api/resumes'
 import type { ParseStatus, Resume } from '../types/resume'
 
 const statusColor: Record<ParseStatus, string> = {
@@ -26,6 +32,7 @@ function StatusBadge({ status }: { status: ParseStatus }) {
 /** Resume list: framed upload zone + parse hint + cards with delete (user feedback). */
 export default function Resumes() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const fileInput = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
@@ -53,13 +60,24 @@ export default function Resumes() {
     setError('')
     setUploading(true)
     try {
-      await uploadResume(file)
-      await refetch()
+      const resume = await uploadResume(file)
+      // jump straight to the resume page — it shows parsing progress then the result
+      navigate(`/resumes/${resume.id}`)
     } catch {
       setError(t('resume.uploadFailed'))
     } finally {
       setUploading(false)
       if (fileInput.current) fileInput.current.value = ''
+    }
+  }
+
+  const onManualCreate = async () => {
+    setError('')
+    try {
+      const resume = await createBlankResume()
+      navigate(`/resumes/${resume.id}`)
+    } catch {
+      setError(t('auth.error'))
     }
   }
 
@@ -97,13 +115,21 @@ export default function Resumes() {
       <div className="mt-6 rounded-2xl border border-dashed border-line py-10 text-center">
         <p className="text-[14px] font-medium text-ink">{t('resume.uploadTitle')}</p>
         <p className="mt-1 text-[12px] text-faint">{t('resume.uploadHint')}</p>
-        <button
-          onClick={() => fileInput.current?.click()}
-          disabled={uploading}
-          className="mt-4 rounded-full bg-accent px-6 py-2.5 text-[13.5px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-        >
-          {uploading ? t('resume.uploading') : t('resume.upload')}
-        </button>
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <button
+            onClick={() => fileInput.current?.click()}
+            disabled={uploading}
+            className="rounded-full bg-accent px-6 py-2.5 text-[13.5px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          >
+            {uploading ? t('resume.uploading') : t('resume.upload')}
+          </button>
+          <button
+            onClick={onManualCreate}
+            className="rounded-full border border-line px-6 py-2.5 text-[13.5px] font-medium text-ink transition-colors hover:border-faint"
+          >
+            {t('resume.manualCreate')}
+          </button>
+        </div>
         <input ref={fileInput} type="file" accept=".pdf" className="hidden" onChange={onFile} />
       </div>
 

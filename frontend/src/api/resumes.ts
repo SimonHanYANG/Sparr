@@ -8,6 +8,18 @@ export function uploadResume(file: File, title?: string): Promise<Resume> {
   return apiUpload<Resume>('/api/resumes/upload', form)
 }
 
+export const createBlankResume = (title?: string) =>
+  apiFetch<Resume>('/api/resumes/blank', {
+    method: 'POST',
+    body: JSON.stringify({ title: title ?? '' }),
+  })
+
+export const replaceResumePdf = (id: number, file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  return apiUpload<Resume>(`/api/resumes/${id}/replace`, form)
+}
+
 export const listResumes = () => apiFetch<Resume[]>('/api/resumes')
 
 export const getResume = (id: number) => apiFetch<ResumeDetail>(`/api/resumes/${id}`)

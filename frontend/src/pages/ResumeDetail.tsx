@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router-dom'
 
@@ -7,6 +7,7 @@ import {
   getResume,
   getVersion,
   reparseResume,
+  replaceResumePdf,
   rollbackVersion,
   saveVersion,
 } from '../api/resumes'
@@ -14,7 +15,7 @@ import ResumeEditor from '../components/resume/ResumeEditor'
 import ResumeView from '../components/resume/ResumeView'
 import type { StructuredResume } from '../types/resume'
 
-type Tab = 'view' | 'edit' | 'versions' | 'markdown'
+type Tab = 'view' | 'edit' | 'versions'
 
 const tabCls = (active: boolean) =>
   `rounded-full px-4 py-1.5 text-[13px] transition-colors ${
@@ -29,6 +30,7 @@ export default function ResumeDetail() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('view')
   const [toast, setToast] = useState('')
+  const replaceInput = useRef<HTMLInputElement>(null)
 
   const { data: resume, isError, isLoading } = useQuery({
     queryKey: ['resume', resumeId],
@@ -69,19 +71,43 @@ export default function ResumeDetail() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight text-ink">{resume.title}</h1>
-          <p className="mt-1 text-[12px] text-faint">{resume.source_filename}</p>
+          <p className="mt-1 text-[12px] text-faint">
+            {resume.source_filename || t('resume.manualBadge')}
+          </p>
         </div>
-        {failed && (
+        <div className="flex items-center gap-2">
+          {failed && (
+            <button
+              onClick={async () => {
+                await reparseResume(resumeId)
+                void queryClient.invalidateQueries({ queryKey: ['resume', resumeId] })
+              }}
+              className="rounded-full border border-line px-4 py-2 text-[12.5px] text-ink hover:border-faint"
+            >
+              {t('resume.reparse')}
+            </button>
+          )}
           <button
-            onClick={async () => {
-              await reparseResume(resumeId)
-              void queryClient.invalidateQueries({ queryKey: ['resume', resumeId] })
-            }}
+            onClick={() => replaceInput.current?.click()}
             className="rounded-full border border-line px-4 py-2 text-[12.5px] text-ink hover:border-faint"
           >
-            {t('resume.reparse')}
+            {t('resume.replacePdf')}
           </button>
-        )}
+          <input
+            ref={replaceInput}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              await replaceResumePdf(resumeId, file)
+              await queryClient.invalidateQueries({ queryKey: ['resume', resumeId] })
+              setTab('view')
+              e.target.value = ''
+            }}
+          />
+        </div>
       </div>
 
       {parsing && (
@@ -106,7 +132,7 @@ export default function ResumeDetail() {
       {(ready || failed) && !parsing && (
         <>
           <nav className="mt-6 flex flex-wrap gap-2">
-            {(['view', 'edit', 'versions', 'markdown'] as Tab[]).map((key) => (
+            {(['view', 'edit', 'versions'] as Tab[]).map((key) => (
               <button key={key} className={tabCls(tab === key)} onClick={() => setTab(key)}>
                 {t(`resume.${key === 'view' ? 'view' : key}`)}
               </button>
@@ -167,11 +193,6 @@ export default function ResumeDetail() {
               </div>
             )}
 
-            {tab === 'markdown' && (
-              <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-2xl border border-line bg-surface px-5 py-4 text-[12px] leading-relaxed text-muted">
-                {resume.mineru_markdown || '—'}
-              </pre>
-            )}
           </div>
         </>
       )}

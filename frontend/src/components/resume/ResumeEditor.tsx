@@ -77,23 +77,34 @@ export default function ResumeEditor({
         <h2 className="text-[13px] font-medium uppercase tracking-wider text-muted">
           {t('resume.sections.skills')}
         </h2>
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-3">
+          {data.skills.length > 0 && (
+            <div className="hidden gap-2 sm:flex">
+              <span className={`${label} mb-0 flex-1`}>{t('resume.fields.skill')}</span>
+              <span className={`${label} mb-0 w-28 shrink-0`}>{t('resume.fields.level')}</span>
+              <span className={`${label} mb-0 flex-[2]`}>{t('resume.fields.skillDesc')}</span>
+              <span className="w-10 shrink-0" />
+            </div>
+          )}
           {data.skills.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="flex flex-wrap items-center gap-2">
               <input
-                className={input}
+                className={`${input} min-w-[120px] flex-1`}
                 value={s.name}
-                placeholder={t('resume.fields.skill')}
                 onChange={(e) => patch((d) => void (d.skills[i].name = e.target.value))}
               />
               <input
-                className={`${input} w-32 shrink-0`}
+                className={`${input} w-28 shrink-0`}
                 value={s.level}
-                placeholder={t('resume.fields.level')}
                 onChange={(e) => patch((d) => void (d.skills[i].level = e.target.value))}
               />
+              <input
+                className={`${input} min-w-[160px] flex-[2]`}
+                value={s.desc ?? ''}
+                onChange={(e) => patch((d) => void (d.skills[i].desc = e.target.value))}
+              />
               <button
-                className="shrink-0 text-[12px] text-muted hover:text-red-600"
+                className="w-10 shrink-0 text-[12px] text-muted hover:text-red-600"
                 onClick={() => patch((d) => void d.skills.splice(i, 1))}
               >
                 {t('resume.remove')}
@@ -102,7 +113,7 @@ export default function ResumeEditor({
           ))}
           <button
             className="text-[12.5px] text-accent hover:underline"
-            onClick={() => patch((d) => void d.skills.push({ name: '', level: '' }))}
+            onClick={() => patch((d) => void d.skills.push({ name: '', level: '', desc: '' }))}
           >
             + {t('resume.add')}
           </button>

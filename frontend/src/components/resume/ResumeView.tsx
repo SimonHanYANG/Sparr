@@ -31,15 +31,17 @@ export default function ResumeView({ data }: { data: StructuredResume }) {
 
       {skills.length > 0 && (
         <Section title={t('resume.sections.skills')}>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {skills.map((s, i) => (
-              <span
-                key={i}
-                className="rounded-full border border-line px-3 py-1 text-[12.5px] text-ink"
-              >
-                {s.name}
-                {s.level && <span className="ml-1 text-faint">{s.level}</span>}
-              </span>
+              <div key={i} className="flex flex-wrap items-baseline gap-x-2.5 text-[13px]">
+                <span className="font-medium text-ink">{s.name}</span>
+                {s.level && (
+                  <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">
+                    {s.level}
+                  </span>
+                )}
+                {s.desc && <span className="text-muted">{s.desc}</span>}
+              </div>
             ))}
           </div>
         </Section>

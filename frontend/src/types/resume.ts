@@ -17,6 +17,7 @@ export interface EducationItem {
 export interface SkillItem {
   name: string
   level: string
+  desc?: string
 }
 
 export interface ProjectItem {

@@ -85,6 +85,9 @@ export const zh = {
   },
   resume: {
     upload: '上传简历',
+    manualCreate: '手动填写简历',
+    manualBadge: '手动创建',
+    replacePdf: '重新上传 PDF',
     uploadTitle: '上传简历（PDF）',
     uploadHint: '支持 PDF，最大 10MB；上传后自动解析并结构化',
     uploadFailed: '上传失败，请重试',
@@ -122,7 +125,7 @@ export const zh = {
     fields: {
       name: '姓名', intentRole: '意向岗位', contact: '联系方式', yearsExp: '经验年限',
       school: '学校', degree: '学位', major: '专业', period: '时间段', desc: '描述',
-      skill: '技能', level: '熟练度', project: '项目名', role: '角色',
+      skill: '技能组名', level: '熟练度', skillDesc: '包含的具体技术', project: '项目名', role: '角色',
       techStack: '技术栈（逗号分隔）', bullets: '要点（每行一条）', metrics: '成果指标（每行一条）',
       company: '公司', award: '奖项',
     },
@@ -216,6 +219,9 @@ export const en: typeof zh = {
   },
   resume: {
     upload: 'Upload Resume',
+    manualCreate: 'Fill in manually',
+    manualBadge: 'Manual entry',
+    replacePdf: 'Replace PDF',
     uploadTitle: 'Upload Resume (PDF)',
     uploadHint: 'PDF up to 10MB — auto-parsed and structured after upload',
     uploadFailed: 'Upload failed — please retry',
@@ -253,7 +259,7 @@ export const en: typeof zh = {
     fields: {
       name: 'Name', intentRole: 'Target Role', contact: 'Contact', yearsExp: 'Years of Experience',
       school: 'School', degree: 'Degree', major: 'Major', period: 'Period', desc: 'Description',
-      skill: 'Skill', level: 'Level', project: 'Project', role: 'Role',
+      skill: 'Skill group', level: 'Level', skillDesc: 'Technologies included', project: 'Project', role: 'Role',
       techStack: 'Tech stack (comma separated)', bullets: 'Bullets (one per line)', metrics: 'Metrics (one per line)',
       company: 'Company', award: 'Award',
     },

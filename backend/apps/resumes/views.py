@@ -22,6 +22,7 @@ MAX_PDF_BYTES = 10 * 1024 * 1024  # 10 MB
 class ResumeViewSet(viewsets.ModelViewSet):
     serializer_class = ResumeSerializer
     http_method_names = ["get", "post", "delete"]
+    pagination_class = None  # plain array — small personal lists
 
     def get_queryset(self):
         return Resume.objects.filter(user=self.request.user).select_related("current_version")

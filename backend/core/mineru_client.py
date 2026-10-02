@@ -120,8 +120,7 @@ class MinerUClient:
         zip_url = result_item.get("full_zip_url")
         if not zip_url:
             raise MinerUError(f"no full_zip_url in result (keys: {list(result_item.keys())})")
-        resp = httpx.get(zip_url, timeout=120)
-        resp.raise_for_status()
+        resp = _download(zip_url)
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             for name in zf.namelist():
                 if name.endswith("full.md"):
@@ -173,9 +172,7 @@ class MinerUClient:
         url = agent_item.get("markdown_url")
         if not url:
             raise MinerUError(f"no markdown_url in agent result (keys: {list(agent_item.keys())})")
-        resp = httpx.get(url, timeout=120)
-        resp.raise_for_status()
-        return resp.text
+        return _download(url).text
 
     # ------------------------------------------------------------------
     def _request_upload_urls(self, payload: dict) -> tuple[str, str]:
@@ -203,3 +200,17 @@ def _safe_json(resp: httpx.Response) -> dict:
         return resp.json()
     except ValueError:
         return {}
+
+
+def _download(url: str, attempts: int = 3) -> httpx.Response:
+    """CDN download with retries — proxy/SSL drops happen intermittently."""
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            resp = httpx.get(url, timeout=120, follow_redirects=True)
+            resp.raise_for_status()
+            return resp
+        except (httpx.HTTPError, httpx.TransportError) as exc:
+            last_exc = exc
+            time.sleep(2 * (attempt + 1))
+    raise MinerUError(f"download failed after {attempts} attempts: {last_exc}")

@@ -29,6 +29,7 @@ class CredentialViewSet(viewsets.ModelViewSet):
 
     serializer_class = CredentialSerializer
     http_method_names = ["get", "post", "patch", "delete"]
+    pagination_class = None  # plain array — only 3 rows per user
 
     def get_queryset(self):
         return ProviderCredential.objects.filter(user=self.request.user).order_by("provider")

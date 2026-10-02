@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import Placeholder from './pages/Placeholder'
 import ResumeDetail from './pages/ResumeDetail'
 import Resumes from './pages/Resumes'
+import Settings from './pages/Settings'
 import { useAuth } from './stores/auth'
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -54,7 +55,7 @@ export default function App() {
           path="settings"
           element={
             <RequireAuth>
-              <Placeholder titleKey="page.settingsTitle" descKey="page.settingsDesc" />
+              <Settings />
             </RequireAuth>
           }
         />

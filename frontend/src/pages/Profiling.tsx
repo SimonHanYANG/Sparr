@@ -21,25 +21,59 @@ function ScoreBadge({ score }: { score: number }) {
   )
 }
 
-/** One LLM match evaluation card — gaps anchored to JD requirement clauses. */
+/** One LLM match evaluation card — collapsed by default, expandable. */
 function MatchCard({ ev }: { ev: MatchEval }) {
   const { t } = useTranslation()
-  const label = ev.job_profile
-    ? ev.job_profile.title
-    : ev.job
-      ? `${ev.job.title} · ${ev.job.level}`
-      : ''
+  const [open, setOpen] = useState(false)
+  const label = ev.job_profile ? ev.job_profile.title : (ev.job?.title ?? '')
+  const levels = ev.job?.levels ?? (ev.job ? [ev.job.level] : [])
+  const keyGaps = ev.gaps.filter((g) => g.status === '未体现').slice(0, 2)
+
   return (
-    <div className="animate-fade rounded-2xl border border-line px-6 py-5">
-      <div className="flex items-start gap-4">
+    <div className="animate-fade overflow-hidden rounded-2xl border border-line">
+      {/* collapsed header — always visible key info */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-start gap-4 px-6 py-5 text-left"
+      >
         <ScoreBadge score={ev.score} />
         <div className="min-w-0 flex-1">
-          <h3 className="text-[14.5px] font-medium text-ink">{label}</h3>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <h3 className="text-[14.5px] font-medium text-ink">{label}</h3>
+            {levels.length > 0 && (
+              <span className="rounded-full bg-surface px-2 py-0.5 text-[10.5px] text-muted">
+                {levels.join(' / ')}
+              </span>
+            )}
+          </div>
           {ev.summary && <p className="mt-1 text-[12.5px] text-muted">{ev.summary}</p>}
+          {ev.gaps.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10.5px] text-amber-700">
+                {t('profiling.gapsCount', { count: ev.gaps.length })}
+              </span>
+              {keyGaps.map((g, i) => (
+                <span key={i} className="text-[11px] text-faint">
+                  {g.requirement.slice(0, 12)}
+                  {g.requirement.length > 12 ? '…' : ''}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <span
+          className={`shrink-0 text-[12px] text-faint transition-transform ${open ? 'rotate-180' : ''}`}
+        >
+          ⌄
+        </span>
+      </button>
 
+      {/* expanded details */}
+      {open && (
+        <div className="border-t border-line px-6 py-4">
           {ev.matched.length > 0 && (
             <>
-              <p className="mt-3 text-[11.5px] font-medium text-emerald-700">
+              <p className="text-[11.5px] font-medium text-emerald-700">
                 ✓ {t('profiling.matchedTitle')}
               </p>
               <ul className="mt-1.5 space-y-1">
@@ -74,18 +108,22 @@ function MatchCard({ ev }: { ev: MatchEval }) {
           )}
 
           {ev.advice.length > 0 && (
-            <p className="mt-3 text-[12px] leading-relaxed text-muted">
-              💡 {ev.advice.join('；')}
-            </p>
+            <p className="mt-3 text-[12px] leading-relaxed text-muted">💡 {ev.advice.join('；')}</p>
           )}
+
+          <div className="mt-4 flex items-center justify-between">
+            <button className="text-[12px] text-muted hover:text-ink" onClick={() => setOpen(false)}>
+              {t('profiling.collapse')}
+            </button>
+            <Link
+              to="/applications"
+              className="rounded-full border border-line px-4 py-2 text-[12px] text-ink transition-colors hover:border-faint"
+            >
+              {t('profiling.startMock')}
+            </Link>
+          </div>
         </div>
-        <Link
-          to="/applications"
-          className="shrink-0 rounded-full border border-line px-4 py-2 text-[12px] text-ink transition-colors hover:border-faint"
-        >
-          {t('profiling.startMock')}
-        </Link>
-      </div>
+      )}
     </div>
   )
 }

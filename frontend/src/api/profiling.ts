@@ -16,7 +16,7 @@ export interface MatchEval {
   gaps: { requirement: string; status: string; advice: string }[]
   advice: string[]
   model_name?: string
-  job?: { id: number; title: string; category: string; level: string } | null
+  job?: { id: number; title: string; category: string; level: string; levels?: string[] } | null
   job_profile?: { id: number; title: string } | null
 }
 

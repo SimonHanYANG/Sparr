@@ -90,13 +90,22 @@ def _llm_or_400(request):
     return llm, model, None
 
 
+def _job_brief(job) -> dict:
+    """Title + ALL levels for that role (one card per title; 校招/社招 merged)."""
+    levels = sorted(JobPosition.objects.filter(
+        category=job.category, title=job.title).values_list("level", flat=True))
+    order = {"实习": 0, "校招": 1, "社招": 2}
+    levels.sort(key=lambda lv: order.get(lv, 9))
+    return {"id": job.id, "title": job.title, "category": job.category,
+            "level": job.level, "levels": levels}
+
+
 def _analysis_payload(a: MatchAnalysis) -> dict:
     return {
         "id": a.id, "score": a.score, "summary": a.summary,
         "matched": a.matched, "gaps": a.gaps, "advice": a.advice,
         "model_name": a.model_name, "created_at": a.created_at.isoformat(),
-        "job": ({"id": a.job_id, "title": a.job.title, "category": a.job.category,
-                 "level": a.job.level} if a.job_id else None),
+        "job": (_job_brief(a.job) if a.job_id else None),
         "job_profile": ({"id": a.job_profile_id, "title": a.job_profile.title}
                         if a.job_profile_id else None),
     }

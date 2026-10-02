@@ -237,6 +237,19 @@ class CandidateSelectionTests(TestCase):
         # at least some variation across directions (not one fixed number)
         self.assertGreater(len(counts), 1)
 
+    def test_same_title_levels_merged_into_one_pick(self):
+        """校招/社招 variants of one title must not produce two picks (user req)."""
+        portrait = compute_portrait(sample_algorithm())
+        picked = select_candidate_jobs(self._jobs(), portrait)
+        titles = [(j.category, j.title) for j in picked]
+        self.assertEqual(len(titles), len(set(titles)), f"duplicate title picks: {titles}")
+
+    def test_specialized_roles_exist(self):
+        titles = set(JobPosition.objects.values_list("title", flat=True))
+        for name in ("大模型预训练工程师", "大模型后训练工程师（Post-training/对齐）",
+                     "感知算法工程师（视觉/世界模型）"):
+            self.assertIn(name, titles)
+
     def test_intern_jobs_excluded_for_social_candidate(self):
         portrait = compute_portrait(sample_backend())  # 3 年 -> 社招
         picked = select_candidate_jobs(self._jobs(), portrait)

@@ -210,24 +210,33 @@ def select_candidate_jobs(jobs, portrait: dict, *, min_n: int = 5, max_n: int = 
 
     Adaptive count — whoever fits more roles gets more; NEVER fewer than min_n:
     1. drop level-mismatched jobs (exp adjacency < 0.7),
-    2. rule-rank the rest, keep those scoring >= ratio x best (relative cutoff
+    2. dedupe 校招/社招 variants of the SAME title into one pick (the
+       better-scoring variant represents the title — one card per role),
+    3. rule-rank the rest, keep those scoring >= ratio x best (relative cutoff
        adapts to how broadly the candidate fits),
-    3. clamp to [min_n, max_n] (pad with next-best / trim tail).
+    4. clamp to [min_n, max_n] (pad with next-best / trim tail).
     """
     scored = []
     for job in jobs:
         result = score_job(job, portrait)
         if result["sub_scores"]["experience"] >= 0.7:  # level matches or adjacent
             scored.append((result["score"], job))
-    scored.sort(key=lambda x: -x[0])
 
-    if not scored:
+    # one pick per (category, title) — best-scoring level variant wins
+    best_by_title: dict[tuple, tuple] = {}
+    for score, job in scored:
+        key = (job.category, job.title)
+        if key not in best_by_title or score > best_by_title[key][0]:
+            best_by_title[key] = (score, job)
+    deduped = sorted(best_by_title.values(), key=lambda x: -x[0])
+
+    if not deduped:
         return list(jobs)[:max_n]
 
-    best = scored[0][0]
+    best = deduped[0][0]
     threshold = best * ratio
-    picked = [job for score, job in scored if score >= threshold]
+    picked = [job for score, job in deduped if score >= threshold]
 
     if len(picked) < min_n:
-        picked = [job for _, job in scored[:min_n]]
+        picked = [job for _, job in deduped[:min_n]]
     return picked[:max_n]

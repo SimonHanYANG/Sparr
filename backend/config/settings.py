@@ -78,9 +78,16 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # ---------------------------------------------------------------------------
-# Database — DATABASE_URL, e.g. postgres://user:pass@host:5432/db or sqlite:///db.sqlite3
+# Database — DATABASE_URL, e.g. postgres://user:pass@host:5432/db or sqlite:///backend/db.sqlite3
+# Relative sqlite paths resolve against the repo root (BASE_DIR.parent).
 # ---------------------------------------------------------------------------
 DATABASES = {"default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")}
+if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+    from pathlib import Path as _Path
+
+    _name = _Path(DATABASES["default"]["NAME"])
+    if not _name.is_absolute():
+        DATABASES["default"]["NAME"] = str((BASE_DIR.parent / _name).resolve())
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -147,6 +154,10 @@ CELERY_TASK_TRACK_STARTED = True
 FERNET_KEY = env("FERNET_KEY", default="")
 
 # LLM providers registry: OpenAI-compatible chat completions (PLAN.md §2)
+# MiMo has two key families (docs: mimo.mi.com):
+#   sk-xxxxx  按量付费  -> https://api.xiaomimimo.com/v1
+#   tp-/ttp-  Token Plan -> 专属集群 (token-plan-cn/sgp/ams.xiaomimimo.com/v1)
+# Users can override base_url per credential; the UI surfaces this.
 LLM_PROVIDERS = {
     "deepseek": {
         "base_url": env("DEEPSEEK_BASE_URL", default="https://api.deepseek.com/v1"),
@@ -155,10 +166,17 @@ LLM_PROVIDERS = {
     },
     "mimo": {
         "base_url": env("MIMO_BASE_URL", default="https://api.xiaomimimo.com/v1"),
-        "models": env.list("MIMO_MODELS", default=["mimo-2.5", "mimo-2.6"]),
-        "default_model": env("MIMO_DEFAULT_MODEL", default="mimo-2.6"),
+        "models": env.list("MIMO_MODELS", default=[
+            "mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.5-pro", "mimo-v2.5",
+        ]),
+        "default_model": env("MIMO_DEFAULT_MODEL", default="mimo-v2.6-flash"),
     },
 }
+
+# Site-wide default LLM when the user hasn't chosen one (user requirement:
+# default is Xiaomi MiMo flash). Users can still pick DeepSeek/other in Settings.
+DEFAULT_LLM_PROVIDER = env("DEFAULT_LLM_PROVIDER", default="mimo")
+DEFAULT_LLM_MODEL = env("DEFAULT_LLM_MODEL", default="mimo-v2.6-flash")
 LLM_REQUEST_TIMEOUT = env.int("LLM_REQUEST_TIMEOUT", default=120)
 
 # MinerU open API for resume PDF parsing

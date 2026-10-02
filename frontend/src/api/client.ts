@@ -72,3 +72,30 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
 }
+
+/** multipart upload with the same JWT/refresh semantics as apiFetch. */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const doFetch = () =>
+    fetch(path, {
+      method: 'POST',
+      headers: getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {},
+      body: form,
+    })
+  let resp = await doFetch()
+  if (resp.status === 401 && (await tryRefresh())) {
+    resp = await doFetch()
+  }
+  if (!resp.ok) {
+    let detail: Record<string, unknown> = {}
+    try {
+      const body = await resp.json()
+      if (typeof body === 'object' && body !== null) {
+        detail = body as Record<string, unknown>
+      }
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(resp.status, `HTTP ${resp.status}`, detail)
+  }
+  return (await resp.json()) as T
+}

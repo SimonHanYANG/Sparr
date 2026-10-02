@@ -42,8 +42,11 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def _headers(self) -> dict:
+        # Send both auth styles: OpenAI-compatible Bearer + MiMo's `api-key`
+        # header (Token Plan accepts both; others ignore the extra header).
         return {
             "Authorization": f"Bearer {self.api_key}",
+            "api-key": self.api_key,
             "Content-Type": "application/json",
         }
 

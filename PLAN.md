@@ -189,6 +189,11 @@ ResumeEditSuggestion        简历修改建议（diff 式，可逐条采纳）
 4. **更改**：同一界面切换编辑模式——结构化表单逐字段改，左侧表单右侧 MinerU 原文对照；保存生成新版本；版本历史可 diff、可回滚。
 5. 解析状态：解析中 → 完成 → 待确认。
 
+**解析缓存与增量分析契约（用户要求，测试锁定）**：
+1. **PDF 不变，绝不重复解析**：MinerU 结果（markdown）按 `mineru_source_hash`（PDF 字节 md5）缓存；同 PDF 重触发解析时跳过 MinerU 直接复用缓存，只有 PDF 变更才重新解析（`test_unchanged_pdf_never_reparsed` / `test_changed_pdf_triggers_full_reparse`）；
+2. **在线编辑零解析**：保存编辑版本只写结构化数据，不触发任何 PDF 解析 / LLM 抽取（`test_online_edit_never_touches_pdf_parse`）；
+3. **衍生分析仅增量更新**：画像、推荐、面试弹药卡等 LLM 衍生分析（Phase 2/3）挂在 `ResumeVersion` 变更钩子上，**仅对编辑变更的条目做增量分析更新**，永不回退到 PDF 层；未变更条目的分析结果随版本继承。
+
 ### 5.2 F2 用户画像评估 + 岗位推荐
 
 **决策：画像与推荐打分不用大模型，用确定性规则引擎。** 理由：

@@ -29,10 +29,12 @@ ACCURATE_PATIENCE_S = int(os.environ.get("MINERU_ACCURATE_PATIENCE", "300"))
 def _pick_llm(user):
     """Pick (credential, model_name) honoring the user's UI preference.
 
-    Preference (UserPreference.llm_provider/llm_model) wins when that provider
-    has a stored key; otherwise fallback deepseek -> mimo. Returns (cred, model)
-    or (None, None).
+    Order: explicit UserPreference -> site default (mimo / mimo-v2.6-flash,
+    see settings.DEFAULT_LLM_*) -> any stored LLM credential.
+    Returns (cred, model) or (None, None).
     """
+    from django.conf import settings as dj_settings
+
     from apps.accounts.models import ProviderCredential, UserPreference
 
     creds = {c.provider: c for c in user.credentials.all()}
@@ -40,7 +42,14 @@ def _pick_llm(user):
     if pref and pref.llm_provider and pref.llm_provider in creds:
         cred = creds[pref.llm_provider]
         return cred, (pref.llm_model or cred.model_name or None)
-    for provider in ("deepseek", "mimo"):
+
+    default_provider = dj_settings.DEFAULT_LLM_PROVIDER
+    if default_provider in creds:
+        cred = creds[default_provider]
+        model = dj_settings.DEFAULT_LLM_MODEL or cred.model_name or None
+        return cred, model
+
+    for provider in ("mimo", "deepseek"):
         if provider in creds:
             return creds[provider], (creds[provider].model_name or None)
     return None, None

@@ -62,7 +62,7 @@ export const zh = {
     intro: '自备 API-Key：加密存储，保存后只显示掩码，永不回读。',
     prefTitle: '大模型偏好',
     prefHint: '简历解析、面试、判卷等 AI 功能默认使用这里选择的模型',
-    prefAuto: '自动（优先 DeepSeek）',
+    prefAuto: '默认（小米 MiMo · mimo-v2.6-flash）',
     providers: {
       mineru: 'MinerU（简历解析）',
       deepseek: 'DeepSeek（大模型）',
@@ -196,7 +196,7 @@ export const en: typeof zh = {
     intro: 'Bring your own API keys — encrypted at rest, masked on read, never readable back.',
     prefTitle: 'Preferred LLM',
     prefHint: 'AI features (resume parsing, interviews, grading) use the model chosen here',
-    prefAuto: 'Auto (DeepSeek first)',
+    prefAuto: 'Default (Xiaomi MiMo · mimo-v2.6-flash)',
     providers: {
       mineru: 'MinerU (resume parsing)',
       deepseek: 'DeepSeek (LLM)',

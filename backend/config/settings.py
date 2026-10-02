@@ -169,9 +169,14 @@ LLM_PROVIDERS = {
         "models": env.list("MIMO_MODELS", default=[
             "mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.5-pro", "mimo-v2.5",
         ]),
-        "default_model": env("MIMO_DEFAULT_MODEL", default="mimo-v2.6-pro"),
+        "default_model": env("MIMO_DEFAULT_MODEL", default="mimo-v2.6-flash"),
     },
 }
+
+# Site-wide default LLM when the user hasn't chosen one (user requirement:
+# default is Xiaomi MiMo flash). Users can still pick DeepSeek/other in Settings.
+DEFAULT_LLM_PROVIDER = env("DEFAULT_LLM_PROVIDER", default="mimo")
+DEFAULT_LLM_MODEL = env("DEFAULT_LLM_MODEL", default="mimo-v2.6-flash")
 LLM_REQUEST_TIMEOUT = env.int("LLM_REQUEST_TIMEOUT", default=120)
 
 # MinerU open API for resume PDF parsing

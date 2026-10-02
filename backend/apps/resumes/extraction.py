@@ -42,7 +42,9 @@ SCHEMA_PROMPT = """你是一个简历结构化抽取引擎。从用户给的简�
 1. 忠实原文，不要编造；简历里没有的字段用空字符串或空数组；
 2. bullets 尽量保留简历原文语句（可轻微精简）；
 3. 时间段统一为 "YYYY.MM - YYYY.MM" 或 "YYYY.MM - 至今" 风格；
-4. 输出必须是合法 JSON。"""
+4. 输出必须是合法 JSON；
+5. skills 必须完整抽取（编程语言/框架/工具/软技能等，宁多勿漏），除非原文确实没有技能信息，否则不得为空数组；
+6. projects 和 work_experiences 的 bullets 同理：正文提到的要点都要抽出来。"""
 
 
 def extract_structured(markdown: str, client: LLMClient, max_retries: int = 2) -> dict:

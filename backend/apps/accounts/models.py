@@ -10,6 +10,20 @@ from django.db import models
 from core.crypto import encrypt, mask
 
 
+class UserPreference(models.Model):
+    """User-chosen default LLM (provider + model) — UI selectable, not hardcoded."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                related_name="llm_preference")
+    llm_provider = models.CharField(max_length=20, blank=True, default="",
+                                    help_text="deepseek | mimo — empty = auto (deepseek first)")
+    llm_model = models.CharField(max_length=100, blank=True, default="",
+                                 help_text="e.g. mimo-v2.6-pro / deepseek-chat — empty = provider default")
+
+    def __str__(self) -> str:
+        return f"{self.user_id}: {self.llm_provider}/{self.llm_model}"
+
+
 class ProviderCredential(models.Model):
     class Provider(models.TextChoices):
         DEEPSEEK = "deepseek", "DeepSeek"

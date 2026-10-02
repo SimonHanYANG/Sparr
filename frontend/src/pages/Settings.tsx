@@ -18,13 +18,80 @@ interface Credential {
 const inputCls =
   'w-full rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] text-ink outline-none focus:border-accent'
 
-const MODEL_OPTIONS: Record<string, string[]> = {
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  mimo: ['mimo-v2.6-pro', 'mimo-v2.6-flash', 'mimo-v2.5-pro', 'mimo-v2.5'],
+interface ProviderInfo {
+  models: string[]
+  default_model: string
+  base_url: string
+}
+
+/** Which LLM powers AI features — user-selectable (provider + model). */
+function PreferenceCard({
+  registry,
+}: {
+  registry: Record<string, ProviderInfo>
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const { data: pref } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => apiFetch<{ llm_provider: string; llm_model: string }>('/api/auth/preferences'),
+  })
+
+  const save = async (provider: string, model: string) => {
+    await apiFetch('/api/auth/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ llm_provider: provider, llm_model: model }),
+    })
+    queryClient.invalidateQueries({ queryKey: ['preferences'] })
+  }
+
+  const models = pref?.llm_provider ? registry[pref.llm_provider]?.models ?? [] : []
+
+  return (
+    <div className="rounded-2xl border border-line px-6 py-5">
+      <h3 className="text-[15px] font-medium text-ink">{t('settings.prefTitle')}</h3>
+      <p className="mt-1 text-[12px] text-faint">{t('settings.prefHint')}</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <select
+          className={inputCls}
+          value={pref?.llm_provider ?? ''}
+          onChange={(e) => save(e.target.value, '')}
+        >
+          <option value="">{t('settings.prefAuto')}</option>
+          {Object.keys(registry).map((p) => (
+            <option key={p} value={p}>
+              {t(`settings.providers.${p}`)}
+            </option>
+          ))}
+        </select>
+        <select
+          className={inputCls}
+          value={pref?.llm_model ?? ''}
+          disabled={!pref?.llm_provider}
+          onChange={(e) => save(pref!.llm_provider, e.target.value)}
+        >
+          <option value="">{t('settings.modelDefault')}</option>
+          {models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
 }
 
 /** One provider credential card: masked key, validate, add/update/delete. */
-function CredentialCard({ provider, cred }: { provider: string; cred?: Credential }) {
+function CredentialCard({
+  provider,
+  cred,
+  registry,
+}: {
+  provider: string
+  cred?: Credential
+  registry: Record<string, ProviderInfo>
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
@@ -167,7 +234,7 @@ function CredentialCard({ provider, cred }: { provider: string; cred?: Credentia
             <div className="grid gap-3 sm:grid-cols-2">
               <select className={inputCls} value={model} onChange={(e) => setModel(e.target.value)}>
                 <option value="">{t('settings.modelDefault')}</option>
-                {(MODEL_OPTIONS[provider] ?? []).map((m) => (
+                {(registry[provider]?.models ?? []).map((m) => (
                   <option key={m} value={m}>
                     {m}
                   </option>
@@ -204,8 +271,13 @@ export default function Settings() {
     queryKey: ['credentials'],
     queryFn: () => apiFetch<Credential[]>('/api/auth/credentials'),
   })
+  const { data: registry } = useQuery({
+    queryKey: ['providers'],
+    queryFn: () => apiFetch<Record<string, ProviderInfo>>('/api/auth/providers'),
+  })
 
   const byProvider = Object.fromEntries((creds ?? []).map((c) => [c.provider, c]))
+  const reg = registry ?? {}
 
   return (
     <div className="mx-auto max-w-2xl pt-8">
@@ -213,8 +285,9 @@ export default function Settings() {
       <p className="mt-1.5 text-[13.5px] text-muted">{t('settings.intro')}</p>
 
       <div className="mt-8 space-y-4">
+        <PreferenceCard registry={reg} />
         {['mineru', 'deepseek', 'mimo'].map((p) => (
-          <CredentialCard key={p} provider={p} cred={byProvider[p]} />
+          <CredentialCard key={p} provider={p} cred={byProvider[p]} registry={reg} />
         ))}
       </div>
     </div>

@@ -76,14 +76,14 @@ class ParsePipelineTests(APITestCase):
         self._mineru_credential()
         with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
              patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
-             patch("apps.resumes.tasks._pick_llm_credential") as mock_pick, \
+             patch("apps.resumes.tasks._pick_llm") as mock_pick, \
              patch("apps.resumes.extraction.extract_structured",
                    return_value=SAMPLE_STRUCTURED) as mock_extract:
             MockMinerU.return_value.submit_pdf.return_value = "batch-1"
             MockMinerU.return_value.wait_for_result.return_value = {"state": "done"}
             MockMinerU.return_value.fetch_markdown.return_value = "# 简历"
-            mock_pick.return_value = MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
-                                               model_name="", base_url="")
+            mock_pick.return_value = (MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
+                                                  model_name="", base_url=""), "deepseek-chat")
             from .tasks import parse_resume_task
 
             parse_resume_task(self.resume.pk)
@@ -100,7 +100,7 @@ class ParsePipelineTests(APITestCase):
         self._mineru_credential()
         with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
              patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
-             patch("apps.resumes.tasks._pick_llm_credential") as mock_pick, \
+             patch("apps.resumes.tasks._pick_llm") as mock_pick, \
              patch("apps.resumes.extraction.extract_structured",
                    return_value=SAMPLE_STRUCTURED):
             from core.mineru_client import MinerUTimeout
@@ -111,8 +111,8 @@ class ParsePipelineTests(APITestCase):
             inst.submit_pdf_agent.return_value = "task-9"
             inst.wait_for_agent_result.return_value = {"state": "done"}
             inst.fetch_agent_markdown.return_value = "# 轻量解析"
-            mock_pick.return_value = MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
-                                               model_name="", base_url="")
+            mock_pick.return_value = (MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
+                                                  model_name="", base_url=""), "deepseek-chat")
             from .tasks import parse_resume_task
 
             parse_resume_task(self.resume.pk)
@@ -130,11 +130,36 @@ class ParsePipelineTests(APITestCase):
         self.assertEqual(self.resume.parse_status, "failed")
         self.assertIn("MinerU", self.resume.parse_error)
 
+    def test_reparse_appends_new_version_number(self):
+        """Re-parsing must create v2+, never collide with existing v1 (regression)."""
+        from .models import ResumeVersion
+
+        self._mineru_credential()
+        ResumeVersion.objects.create(resume=self.resume, version_no=1,
+                                     structured_json=SAMPLE_STRUCTURED, change_note="v1")
+        with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
+             patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
+             patch("apps.resumes.tasks._pick_llm",
+                   return_value=(MagicMock(provider="mimo", reveal_api_key=lambda: "k",
+                                           model_name="", base_url=""), "mimo-v2.6-pro")), \
+             patch("apps.resumes.extraction.extract_structured",
+                   return_value=SAMPLE_STRUCTURED):
+            MockMinerU.return_value.submit_pdf.return_value = "batch-1"
+            MockMinerU.return_value.wait_for_result.return_value = {"state": "done"}
+            MockMinerU.return_value.fetch_markdown.return_value = "# 简历"
+            from .tasks import parse_resume_task
+
+            parse_resume_task(self.resume.pk)
+        self.resume.refresh_from_db()
+        self.assertEqual(self.resume.parse_status, "parsed")
+        self.assertEqual(self.resume.current_version.version_no, 2)
+        self.assertIn("mimo/mimo-v2.6-pro", self.resume.current_version.change_note)
+
     def test_parse_without_llm_key_saves_markdown_but_fails_extraction(self):
         self._mineru_credential()
         with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
              patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
-             patch("apps.resumes.tasks._pick_llm_credential", return_value=None):
+             patch("apps.resumes.tasks._pick_llm", return_value=(None, None)):
             MockMinerU.return_value.submit_pdf.return_value = "batch-1"
             MockMinerU.return_value.wait_for_result.return_value = {"state": "done"}
             MockMinerU.return_value.fetch_markdown.return_value = "# 简历"

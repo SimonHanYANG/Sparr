@@ -610,6 +610,7 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - 后端：Resume/ResumeVersion 模型、上传 API（PDF≤10MB）、后台解析管线（dispatch）→ MinerU → LLM 结构化抽取（严格 schema + 重试）、版本创建/回滚/重解析 — 20 测试全绿
   - 前端：简历列表（上传+状态轮询）、卡片式在线简历、结构化编辑器（保存即新版本）、版本历史/回滚、解析原文对照；UI 自查通过（DOM 断言：编辑→保存→版本历史全链路）
   - MinerU 双模式策略（按官方文档 https://mineru.net/apiManage/docs 实现）：**🎯 精准解析优先**（`full_zip_url` 取 `full.md`，`model_version=vlm`）→ 队列超过 `MINERU_ACCURATE_PATIENCE`（默认 300s）**降级 ⚡ Agent 轻量解析**（`/api/v1/agent/parse/*`，免 token，`markdown_url` 直取）——已用真实 CV 实测：精准超时降级后轻量解析成功（5209 字符/228 行）
+  - LLM 双模型实战验证 — 2026-10-02：DeepSeek 与 MiMo（Token Plan `tp-` key → `token-plan-cn` 集群、`mimo-v2.6-pro`，双鉴权头兼容）均跑通真实 CV 抽取；设置页三凭据卡 + **大模型偏好选择器**（provider+model 自选，`/api/auth/preferences`）；抽取 prompt 加固（技能宁多勿漏）；修复重解析版本号冲突（追加 vN+1 并记录所用模型）— 22 测试全绿
 - [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收
 - [ ] **Phase 4**：F3 基础笔试 + 代码笔试（组卷 / 判卷 / CodeMirror）

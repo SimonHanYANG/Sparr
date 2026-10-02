@@ -64,7 +64,7 @@ class JobProfileViewSet(viewsets.ModelViewSet):
 
 def _profile_payload(p: JobProfile) -> dict:
     return {"id": p.id, "title": p.title, "jd_text": p.jd_text,
-            "category": p.category, "level": p.level, "created_at": p.created_at}
+            "category": p.category, "level": p.level, "created_at": p.created_at.isoformat()}
 
 
 def _resolve_resume_version(request):
@@ -93,7 +93,7 @@ def _analysis_payload(a: MatchAnalysis) -> dict:
     return {
         "id": a.id, "score": a.score, "summary": a.summary,
         "matched": a.matched, "gaps": a.gaps, "advice": a.advice,
-        "model_name": a.model_name, "created_at": a.created_at,
+        "model_name": a.model_name, "created_at": a.created_at.isoformat(),
         "job": ({"id": a.job_id, "title": a.job.title, "category": a.job.category,
                  "level": a.job.level} if a.job_id else None),
         "job_profile": ({"id": a.job_profile_id, "title": a.job_profile.title}

@@ -220,7 +220,7 @@ export default function Profiling() {
         <section className="mt-8">
           <h2 className="text-[15px] font-medium text-ink">{t('profiling.aiTitle')}</h2>
           <p className="mt-1 text-[11.5px] text-faint">
-            {t('profiling.modelNote', { model: evals[0].model_name || 'mimo-v2.6-flash' })}
+            {t('profiling.modelNote', { model: evals[0]?.model_name || 'mimo-v2.6-flash' })}
           </p>
           <div className="mt-4 space-y-4">
             {evals.map((ev, i) => (

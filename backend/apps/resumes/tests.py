@@ -130,6 +130,71 @@ class ParsePipelineTests(APITestCase):
         self.assertEqual(self.resume.parse_status, "failed")
         self.assertIn("MinerU", self.resume.parse_error)
 
+    def test_unchanged_pdf_never_reparsed(self):
+        """Cache rule: same PDF bytes + cached markdown -> NO MinerU call at all."""
+        self._mineru_credential()
+        self.resume.mineru_markdown = "# 缓存"
+        self.resume.mineru_source_hash = __import__("hashlib").md5(pdf_bytes()).hexdigest()
+        self.resume.save()
+        with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
+             patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
+             patch("apps.resumes.tasks._pick_llm",
+                   return_value=(MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
+                                           model_name="", base_url=""), "deepseek-chat")), \
+             patch("apps.resumes.extraction.extract_structured",
+                   return_value=SAMPLE_STRUCTURED) as mock_extract:
+            from .tasks import parse_resume_task
+
+            parse_resume_task(self.resume.pk)
+            MockMinerU.return_value.submit_pdf.assert_not_called()
+            MockMinerU.return_value.submit_pdf_agent.assert_not_called()
+            mock_extract.assert_called_once()
+        self.resume.refresh_from_db()
+        self.assertEqual(self.resume.parse_status, "parsed")
+        self.assertEqual(self.resume.mineru_markdown, "# 缓存")
+        self.assertEqual(self.resume.current_version.version_no, 1)
+
+    def test_changed_pdf_triggers_full_reparse(self):
+        """Cache rule: PDF bytes changed -> MinerU runs again, hash updated."""
+        self._mineru_credential()
+        self.resume.mineru_markdown = "# 旧"
+        self.resume.mineru_source_hash = "stale-hash-not-matching-new-bytes"
+        self.resume.save()
+        with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
+             patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
+             patch("apps.resumes.tasks._pick_llm",
+                   return_value=(MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
+                                           model_name="", base_url=""), "deepseek-chat")), \
+             patch("apps.resumes.extraction.extract_structured",
+                   return_value=SAMPLE_STRUCTURED):
+            MockMinerU.return_value.submit_pdf.return_value = "batch-2"
+            MockMinerU.return_value.wait_for_result.return_value = {"state": "done"}
+            MockMinerU.return_value.fetch_markdown.return_value = "# 新"
+            from .tasks import parse_resume_task
+
+            parse_resume_task(self.resume.pk)
+            MockMinerU.return_value.submit_pdf.assert_called_once()
+        self.resume.refresh_from_db()
+        self.assertEqual(self.resume.mineru_markdown, "# 新")
+        self.assertNotEqual(self.resume.mineru_source_hash, "stale-hash-not-matching-new-bytes")
+
+    def test_online_edit_never_touches_pdf_parse(self):
+        """Saving an edited version must not dispatch any parse work."""
+        self.resume.mineru_markdown = "# 缓存"
+        self.resume.parse_status = "parsed"
+        self.resume.save()
+        self.client.force_authenticate(self.user)
+        with patch("apps.resumes.views.dispatch") as mock_dispatch, \
+             patch("apps.resumes.tasks.MinerUClient") as MockMinerU:
+            resp = self.client.post(f"/api/resumes/{self.resume.pk}/versions",
+                                    {"structured_json": SAMPLE_STRUCTURED, "change_note": "在线改"},
+                                    format="json")
+            mock_dispatch.assert_not_called()
+            MockMinerU.assert_not_called()
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.resume.refresh_from_db()
+        self.assertEqual(self.resume.mineru_markdown, "# 缓存")  # untouched
+
     def test_reparse_appends_new_version_number(self):
         """Re-parsing must create v2+, never collide with existing v1 (regression)."""
         from .models import ResumeVersion

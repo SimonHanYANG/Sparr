@@ -11,6 +11,7 @@ MinerU strategy (user requirement): 🎯 accurate parse first; if the cloud
 queue is still slow after MINERU_ACCURATE_PATIENCE seconds, fall back to
 ⚡ Agent lightweight parse. Full contract in core/mineru_client.py.
 """
+import hashlib
 import logging
 import os
 
@@ -46,13 +47,23 @@ def _pick_llm(user):
 
 
 def parse_markdown(client: MinerUClient, content: bytes, filename: str, resume) -> str:
-    """Accurate parse with Agent lightweight fallback (returns markdown text)."""
+    """Accurate parse with Agent lightweight fallback (returns markdown text).
+
+    Caching rule (user requirement): if the PDF bytes are unchanged
+    (md5 == mineru_source_hash) and markdown is already stored, NEVER re-parse
+    the PDF — reuse the cached markdown. Only a changed PDF re-triggers MinerU.
+    """
+    digest = hashlib.md5(content).hexdigest()
+    if resume.mineru_markdown and resume.mineru_source_hash == digest:
+        logger.info("resume %s: PDF unchanged, reusing cached markdown (skip MinerU)", resume.pk)
+        return resume.mineru_markdown
+
     try:
         batch_id = client.submit_pdf(content, filename)
         resume.mineru_batch_id = f"accurate:{batch_id}"
         resume.save(update_fields=["mineru_batch_id", "updated_at"])
         item = client.wait_for_result(batch_id, timeout_s=ACCURATE_PATIENCE_S)
-        return client.fetch_markdown(item)
+        markdown = client.fetch_markdown(item)
     except MinerUTimeout:
         logger.info("accurate parse slow (batch %s) — falling back to Agent parse",
                     resume.mineru_batch_id)
@@ -60,7 +71,11 @@ def parse_markdown(client: MinerUClient, content: bytes, filename: str, resume) 
         resume.mineru_batch_id = f"agent:{task_id}"
         resume.save(update_fields=["mineru_batch_id", "updated_at"])
         item = client.wait_for_agent_result(task_id)
-        return client.fetch_agent_markdown(item)
+        markdown = client.fetch_agent_markdown(item)
+
+    resume.mineru_source_hash = digest
+    resume.save(update_fields=["mineru_source_hash", "updated_at"])
+    return markdown
 
 
 @background

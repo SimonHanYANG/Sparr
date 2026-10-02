@@ -17,6 +17,9 @@ class Resume(models.Model):
     source_filename = models.CharField(max_length=255)
     mineru_markdown = models.TextField(blank=True, default="")
     mineru_batch_id = models.CharField(max_length=100, blank=True, default="")
+    mineru_source_hash = models.CharField(max_length=64, blank=True, default="",
+                                          help_text="md5 of the PDF bytes parsed into mineru_markdown — "
+                                                    "PDF unchanged means never re-parse (cache key)")
     parse_status = models.CharField(max_length=20, choices=ParseStatus.choices,
                                     default=ParseStatus.UPLOADED)
     parse_error = models.TextField(blank=True, default="")

@@ -144,7 +144,7 @@ def analyze(request):
 
 @api_view(["POST"])
 def analyze_catalog_view(request):
-    """LLM-evaluate the whole preset catalog against a resume (replaces rule scores)."""
+    """LLM-evaluate the whole preset catalog (parallel per-job; replaces rule scores)."""
     version = _resolve_resume_version(request)
     if version is None:
         return Response({"detail": "没有可分析的简历版本"}, status=status.HTTP_400_BAD_REQUEST)
@@ -160,7 +160,7 @@ def analyze_catalog_view(request):
 
     by_id = {j.id: j for j in jobs}
     payload = []
-    for ev in sorted(evals, key=lambda e: -e["score"]):
+    for ev in evals:
         job = by_id[ev["job_id"]]
         analysis = MatchAnalysis.objects.create(
             user=request.user, resume_version=version, job=job,
@@ -171,3 +171,64 @@ def analyze_catalog_view(request):
         )
         payload.append(_analysis_payload(analysis))
     return Response(payload)
+
+
+@api_view(["POST"])
+def analyze_catalog_stream(request):
+    """SSE: stream one `eval` event per job as parallel analyses finish."""
+    from core.sse import sse_event, sse_response
+
+    version = _resolve_resume_version(request)
+    if version is None:
+        return Response({"detail": "没有可分析的简历版本"}, status=status.HTTP_400_BAD_REQUEST)
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    jobs = list(JobPosition.objects.filter(is_active=True))
+
+    import queue as queue_mod
+
+    q: queue_mod.Queue = queue_mod.Queue()
+
+    def on_result(ev):
+        q.put(("eval", ev))
+
+    def worker():
+        try:
+            analyze_catalog(llm, version.structured_json, jobs, on_result=on_result)
+            q.put(("done", None))
+        except ValueError as exc:
+            q.put(("error", {"detail": str(exc)}))
+
+    import threading
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def event_iter():
+        by_id = {j.id: j for j in jobs}
+        yield sse_event("meta", {"total": len(jobs), "model": f"{llm.provider}/{llm.model}"})
+        finished = 0
+        while True:
+            kind, data = q.get()
+            if kind == "eval":
+                job = by_id[data["job_id"]]
+                analysis = MatchAnalysis.objects.create(
+                    user=request.user, resume_version=version, job=job,
+                    model_name=f"{llm.provider}/{llm.model}",
+                    score=data["score"], summary=data.get("summary", ""),
+                    matched=data.get("matched", []), gaps=data.get("gaps", []),
+                    advice=data.get("advice", []),
+                )
+                finished += 1
+                payload = _analysis_payload(analysis)
+                payload["progress"] = {"done": finished, "total": len(jobs)}
+                yield sse_event("eval", payload)
+            elif kind == "done":
+                yield sse_event("done", {"done": finished, "total": len(jobs)})
+                return
+            else:
+                yield sse_event("error", data)
+                return
+
+    return sse_response(event_iter())

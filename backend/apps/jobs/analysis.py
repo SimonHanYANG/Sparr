@@ -40,34 +40,6 @@ ANALYZE_PROMPT = """你是资深招聘专家。请严格评估「候选人简历
 {jd}
 """
 
-CATALOG_PROMPT = """你是资深招聘专家。请用同一把尺子评估「候选人简历」与下列每个岗位的匹配度。
-
-只输出一个 JSON 对象（不要解释、不要代码块）：
-{
-  "evaluations": [
-    {
-      "job_id": 123,
-      "score": 0到100的整数,
-      "summary": "一句话结论（30字内）",
-      "matched": [{"requirement": "岗位的一条要求", "evidence": "简历中的证据"}],
-      "gaps": [{"requirement": "岗位的一条要求", "status": "未体现|部分体现", "advice": "补强建议"}]
-    }
-  ]
-}
-
-评分标准（严格执行）：90-100 核心要求几乎全满足证据扎实；75-89 大部分满足少量缺口；
-60-74 主要满足但有明显缺口；40-59 仅部分满足；0-39 明显不匹配。
-每个岗位的评估都要覆盖其核心要求；gaps 必须锚定岗位要求条目；不得编造简历内容。
-必须为每一个给出的 job_id 输出一条 evaluation。
-
-候选人简历：
-{resume}
-
-岗位列表：
-{jobs}
-"""
-
-
 def _parse_json(raw: str) -> dict:
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip())
     start, end = text.find("{"), text.rfind("}")
@@ -111,36 +83,42 @@ def analyze_match(llm: LLMClient, structured_resume: dict, *, job_title: str,
     raise ValueError(f"岗位匹配分析失败：{last_err}")
 
 
-def analyze_catalog(llm: LLMClient, structured_resume: dict, jobs: list) -> list[dict]:
-    """Batch-evaluate preset catalog jobs in one call -> [{job_id, score, ...}]."""
-    jobs_brief = json.dumps([
-        {
-            "job_id": j.id, "title": j.title, "category": j.category, "level": j.level,
-            "description": j.description,
-            "requirements": [f"{r['skill']}({'必会' if r.get('required') else '加分'})"
-                             for r in j.skill_requirements],
-            "focus": j.interview_focus,
-        }
-        for j in jobs
-    ], ensure_ascii=False)
-    messages = [
-        ChatMessage(role="system", content="你是严谨的招聘评估引擎，只输出合法 JSON。"),
-        ChatMessage(role="user", content=CATALOG_PROMPT
-                    .replace("{resume}", _resume_text(structured_resume))
-                    .replace("{jobs}", jobs_brief[:12000])),
-    ]
-    last_err = None
-    for _ in range(3):
-        try:
-            data = _parse_json(llm.chat(messages, temperature=0.2))
-            evals = {e.get("job_id"): _validate_eval(e) for e in data.get("evaluations", [])}
-            result = []
-            for j in jobs:
-                if j.id in evals:
-                    result.append(evals[j.id])
-            if result:
-                return result
-            raise ValueError("no evaluations returned")
-        except (LLMError, ValueError, KeyError) as exc:
-            last_err = exc
-    raise ValueError(f"岗位批量评估失败：{last_err}")
+def analyze_catalog(llm: LLMClient, structured_resume: dict, jobs: list, on_result=None) -> list[dict]:
+    """Evaluate catalog jobs one-by-one in PARALLEL (one giant batch call took
+    minutes; per-job calls with a thread pool are much faster overall and let
+    callers stream results as they finish).
+
+    Returns [{job_id, score, ...}] sorted by score desc. on_result callback
+    (optional) fires per completed job for streaming.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results: list[dict] = []
+
+    def _one(job):
+        ev = analyze_match(llm, structured_resume,
+                           job_title=f"{job.title}（{job.level}）",
+                           jd_text=_job_to_jd(job))
+        ev["job_id"] = job.id
+        return ev
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_one, j): j for j in jobs}
+        for fut in as_completed(futures):
+            job = futures[fut]
+            try:
+                ev = fut.result()
+            except Exception:  # noqa: BLE001 — one bad job shouldn't kill the batch
+                continue
+            results.append(ev)
+            if on_result:
+                on_result(ev)
+    results.sort(key=lambda e: -e["score"])
+    return results
+
+
+def _job_to_jd(job) -> str:
+    return (f"{job.description}\n岗位要求："
+            + "；".join(f"{r['skill']}({'必会' if r.get('required') else '加分'})"
+                       for r in job.skill_requirements)
+            + f"\n面试重点：{'、'.join(job.interview_focus)}")

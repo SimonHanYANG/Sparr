@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import {
-  analyzeCatalog,
+  analyzeCatalogStream,
   analyzeMatch,
   computePortrait,
   createJobProfile,
@@ -98,6 +98,8 @@ export default function Profiling() {
   const [jdTitle, setJdTitle] = useState('')
   const [jdText, setJdText] = useState('')
   const [error, setError] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [progress, setProgress] = useState({ done: 0, total: 0 })
 
   const { data: portraitResult } = useQuery({
     queryKey: ['profiling'],
@@ -108,14 +110,25 @@ export default function Profiling() {
     queryFn: listJobProfiles,
   })
 
-  const catalog = useMutation({
-    mutationFn: analyzeCatalog,
-    onSuccess: (data) => {
-      setEvals(data)
-      setError('')
-    },
-    onError: () => setError(t('profiling.analyzeFailed')),
-  })
+  const runCatalog = async () => {
+    setError('')
+    setStreaming(true)
+    setEvals([])
+    setProgress({ done: 0, total: 0 })
+    try {
+      await analyzeCatalogStream(
+        (ev, prog) => {
+          setEvals((prev) => [...prev, ev])
+          setProgress(prog)
+        },
+        (prog) => setProgress(prog),
+      )
+    } catch {
+      setError(t('profiling.analyzeFailed'))
+    } finally {
+      setStreaming(false)
+    }
+  }
 
   const single = useMutation({
     mutationFn: analyzeMatch,
@@ -150,11 +163,13 @@ export default function Profiling() {
           <p className="mt-1.5 text-[13.5px] text-muted">{t('profiling.aiDesc')}</p>
         </div>
         <button
-          onClick={() => catalog.mutate()}
-          disabled={catalog.isPending || single.isPending}
+          onClick={runCatalog}
+          disabled={streaming || single.isPending}
           className="shrink-0 rounded-full bg-accent px-5 py-2.5 text-[13px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
-          {catalog.isPending ? t('common.loading') : t('profiling.analyzeCatalog')}
+          {streaming
+            ? t('profiling.analyzingProgress', { done: progress.done, total: progress.total || 12 })
+            : t('profiling.analyzeCatalog')}
         </button>
       </div>
 
@@ -201,7 +216,7 @@ export default function Profiling() {
       </section>
 
       {/* AI evaluations */}
-      {evals.length > 0 && (
+      {(evals.length > 0 || streaming) && (
         <section className="mt-8">
           <h2 className="text-[15px] font-medium text-ink">{t('profiling.aiTitle')}</h2>
           <p className="mt-1 text-[11.5px] text-faint">
@@ -215,7 +230,7 @@ export default function Profiling() {
         </section>
       )}
 
-      {evals.length === 0 && (
+      {evals.length === 0 && !streaming && (
         <div className="mt-8 rounded-2xl border border-dashed border-line py-14 text-center">
           <p className="text-[13px] text-faint">{t('profiling.empty')}</p>
         </div>

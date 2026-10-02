@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { apiFetch, apiStream } from './client'
 
 export interface Portrait {
   skill_vector: Record<string, number>
@@ -47,9 +47,20 @@ export const computePortrait = (resume_id?: number) =>
     body: JSON.stringify(resume_id ? { resume_id } : {}),
   })
 
-/** LLM evaluations of the preset catalog (scores + JD-grounded gaps). */
-export const analyzeCatalog = () =>
-  apiFetch<MatchEval[]>('/api/jobs/analyze-catalog', { method: 'POST', body: '{}' })
+/** LLM evaluations of the preset catalog — streamed progressively (SSE). */
+export const analyzeCatalogStream = (
+  onEval: (ev: MatchEval, progress: { done: number; total: number }) => void,
+  onDone: (progress: { done: number; total: number }) => void,
+) =>
+  apiStream('/api/jobs/analyze-catalog/stream', {}, (event, data) => {
+    if (event === 'eval') {
+      onEval(data as unknown as MatchEval, (data.progress as { done: number; total: number }) ?? { done: 0, total: 0 })
+    } else if (event === 'done') {
+      onDone({ done: (data.done as number) ?? 0, total: (data.total as number) ?? 0 })
+    } else if (event === 'error') {
+      throw new Error((data.detail as string) ?? 'analyze failed')
+    }
+  })
 
 /** LLM analysis of one position — preset job_id or custom job_profile_id. */
 export const analyzeMatch = (payload: { job_id?: number; job_profile_id?: number }) =>

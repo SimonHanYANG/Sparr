@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
+import { apiFetch } from '../api/client'
 import { deleteResume, listResumes, reparseResume, uploadResume } from '../api/resumes'
 import type { ParseStatus, Resume } from '../types/resume'
 
@@ -37,6 +38,14 @@ export default function Resumes() {
         ? 4000
         : false,
   })
+
+  // key-configuration guard: parsing fails without MinerU + an LLM key
+  const { data: creds } = useQuery({
+    queryKey: ['credentials'],
+    queryFn: () => apiFetch<{ provider: string }[]>('/api/auth/credentials'),
+  })
+  const providers = new Set((creds ?? []).map((c) => c.provider))
+  const keysMissing = !providers.has('mineru') || !(providers.has('deepseek') || providers.has('mimo'))
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -74,6 +83,15 @@ export default function Resumes() {
     <div className="mx-auto max-w-2xl pt-8">
       <h1 className="text-[26px] font-semibold tracking-tight text-ink">{t('page.resumesTitle')}</h1>
       <p className="mt-1.5 text-[13.5px] text-muted">{t('page.resumesDesc')}</p>
+
+      {keysMissing && (
+        <div className="mt-4 flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-700">
+          <span>{t('resume.needKeys')}</span>
+          <Link to="/settings" className="font-medium underline">
+            {t('resume.goSettings')}
+          </Link>
+        </div>
+      )}
 
       {/* upload frame with the button inside */}
       <div className="mt-6 rounded-2xl border border-dashed border-line py-10 text-center">

@@ -95,6 +95,11 @@ export default function ResumeDetail() {
         <div className="mt-6 rounded-2xl bg-red-50 px-5 py-4">
           <p className="text-[13px] font-medium text-red-600">{t('resume.status.failed')}</p>
           <p className="mt-1 text-[12.5px] text-red-600/80">{resume.parse_error}</p>
+          {/API-Key|设置/.test(resume.parse_error) && (
+            <a href="/settings" className="mt-1.5 inline-block text-[12.5px] font-medium text-red-600 underline">
+              {t('resume.goSettings')}
+            </a>
+          )}
         </div>
       )}
 

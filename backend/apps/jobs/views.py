@@ -202,11 +202,27 @@ def analyze_catalog_stream(request):
     jobs = select_candidate_jobs(all_jobs, portrait)  # adaptive: >=5, fits vary
 
     import queue as queue_mod
+    import threading
+
+    from django.db import connection
 
     q: queue_mod.Queue = queue_mod.Queue()
+    user_id = request.user.id
+    jobs_by_id = {j.id: j for j in all_jobs}
 
     def on_result(ev):
-        q.put(("eval", ev))
+        """Runs in pool threads — persist HERE so results survive client disconnect."""
+        try:
+            analysis = MatchAnalysis.objects.create(
+                user_id=user_id, resume_version=version, job=jobs_by_id[ev["job_id"]],
+                model_name=f"{llm.provider}/{llm.model}",
+                score=ev["score"], summary=ev.get("summary", ""),
+                matched=ev.get("matched", []), gaps=ev.get("gaps", []),
+                advice=ev.get("advice", []),
+            )
+            q.put(("eval", _analysis_payload(analysis)))
+        finally:
+            connection.close()
 
     def worker():
         try:
@@ -215,30 +231,18 @@ def analyze_catalog_stream(request):
         except ValueError as exc:
             q.put(("error", {"detail": str(exc)}))
 
-    import threading
-
     threading.Thread(target=worker, daemon=True).start()
 
     def event_iter():
-        by_id = {j.id: j for j in jobs}
         yield sse_event("meta", {"total": len(jobs), "candidates": len(all_jobs),
-                          "model": f"{llm.provider}/{llm.model}"})
+                                "model": f"{llm.provider}/{llm.model}"})
         finished = 0
         while True:
             kind, data = q.get()
             if kind == "eval":
-                job = by_id[data["job_id"]]
-                analysis = MatchAnalysis.objects.create(
-                    user=request.user, resume_version=version, job=job,
-                    model_name=f"{llm.provider}/{llm.model}",
-                    score=data["score"], summary=data.get("summary", ""),
-                    matched=data.get("matched", []), gaps=data.get("gaps", []),
-                    advice=data.get("advice", []),
-                )
                 finished += 1
-                payload = _analysis_payload(analysis)
-                payload["progress"] = {"done": finished, "total": len(jobs)}
-                yield sse_event("eval", payload)
+                data["progress"] = {"done": finished, "total": len(jobs)}
+                yield sse_event("eval", data)
             elif kind == "done":
                 yield sse_event("done", {"done": finished, "total": len(jobs)})
                 return
@@ -247,3 +251,23 @@ def analyze_catalog_stream(request):
                 return
 
     return sse_response(event_iter())
+
+
+@api_view(["GET"])
+def analyses_list(request):
+    """Latest analysis per target for a resume version — restores UI state."""
+    try:
+        version = _resolve_resume_version(request)
+    except ResumeVersion.DoesNotExist as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+    qs = MatchAnalysis.objects.filter(
+        user=request.user, resume_version=version).order_by("-created_at")
+    seen, items = set(), []
+    for a in qs.select_related("job", "job_profile"):
+        key = (a.job_id, a.job_profile_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(_analysis_payload(a))
+    items.sort(key=lambda x: -x["score"])
+    return Response(items)

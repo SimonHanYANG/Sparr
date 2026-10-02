@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
@@ -8,9 +8,11 @@ import {
   analyzeMatch,
   computePortrait,
   createJobProfile,
+  listAnalyses,
   listJobProfiles,
   type MatchEval,
 } from '../api/profiling'
+import { useProfiling } from '../stores/profiling'
 
 function ScoreBadge({ score }: { score: number }) {
   const color = score >= 75 ? 'border-accent text-accent' : score >= 60 ? 'border-amber-500 text-amber-600' : 'border-faint text-muted'
@@ -149,13 +151,31 @@ function SkeletonCard() {
 export default function Profiling() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [evals, setEvals] = useState<MatchEval[]>([])
+  // global store: results survive tab switches (user requirement)
+  const {
+    evals, streaming, progress, selectedCount, hydrated,
+    addEval, setEvals, setStreaming, setProgress, setSelectedCount, setHydrated,
+  } = useProfiling()
   const [jdTitle, setJdTitle] = useState('')
   const [jdText, setJdText] = useState('')
   const [error, setError] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [progress, setProgress] = useState({ done: 0, total: 0 })
-  const [selectedCount, setSelectedCount] = useState(0)
+
+  // restore persisted analyses on first mount (survives full reloads too)
+  const { data: restored } = useQuery({
+    queryKey: ['analyses'],
+    queryFn: listAnalyses,
+    enabled: !hydrated,
+  })
+  useEffect(() => {
+    if (!hydrated && restored) {
+      if (restored.length > 0 && useProfiling.getState().evals.length === 0) {
+        setEvals(restored)
+        const withModel = restored.find((e) => e.model_name)
+        if (withModel?.model_name) setSelectedCount(restored.length)
+      }
+      setHydrated(true)
+    }
+  }, [hydrated, restored, setEvals, setHydrated, setSelectedCount])
 
   const { data: portraitResult } = useQuery({
     queryKey: ['profiling'],
@@ -168,19 +188,19 @@ export default function Profiling() {
 
   const runCatalog = async () => {
     setError('')
-    setStreaming(true)
     setEvals([])
     setProgress({ done: 0, total: 0 })
+    setStreaming(true)
     try {
       await analyzeCatalogStream(
         (ev, prog) => {
-          setEvals((prev) => [...prev, ev])
+          addEval(ev)
           setProgress(prog)
         },
         (prog) => setProgress(prog),
         (meta) => {
           setSelectedCount(meta.total)
-          setProgress((p) => ({ ...p, total: meta.total }))
+          setProgress({ ...useProfiling.getState().progress, total: meta.total })
         },
       )
     } catch {
@@ -193,7 +213,7 @@ export default function Profiling() {
   const single = useMutation({
     mutationFn: analyzeMatch,
     onSuccess: (data) => {
-      setEvals((prev) => [data, ...prev.filter((e) => e.job_profile?.id !== data.job_profile?.id)])
+      addEval(data)
       setError('')
     },
     onError: () => setError(t('profiling.analyzeFailed')),

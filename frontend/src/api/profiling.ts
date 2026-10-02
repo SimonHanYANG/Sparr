@@ -84,5 +84,7 @@ export const createJobProfile = (title: string, jd_text: string) =>
     body: JSON.stringify({ title, jd_text }),
   })
 
+export const listAnalyses = () => apiFetch<MatchEval[]>('/api/jobs/analyses')
+
 export const listJobs = (category?: string) =>
   apiFetch<JobPosition[]>(`/api/jobs${category ? `?category=${encodeURIComponent(category)}` : ''}`)

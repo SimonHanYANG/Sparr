@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+
+/* Sparr design tokens (PLAN.md §7): white/gray + single accent, no AI-flavor */
+@theme {
+  --color-ink: #1a1a1a;
+  --color-muted: #8e8e93;
+  --color-faint: #c7c7cc;
+  --color-line: #ececef;
+  --color-surface: #fafafa;
+  --color-accent: #1b4d8f;
+  --color-accent-hover: #163e73;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  @apply bg-white text-ink font-sans;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+/* fade-in for page transitions */
+@keyframes sparr-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade {
+  animation: sparr-fade 0.35s ease both;
+}

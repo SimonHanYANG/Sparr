@@ -593,12 +593,18 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
 
 > **约定（CLAUDE.md 强制）**：每完成一个有意义的增量，立即更新本表（勾选 + 日期 + commit 短号 + 遗留问题），并及时 push 对应分支。新会话从本表了解进度，不通读代码/全文。
 
-**当前阶段**：Phase 0 未开始 · 当前分支 `main`（基线）· 最近更新 2026-10-02
+**当前阶段**：Phase 0 已发布 v0.1 · 下一步 Phase 1（简历解析）· 最近更新 2026-10-02
 
 - [x] 需求与架构计划定稿（PLAN.md v3，含面试智能化/断点续面/双部署/i18n/多端）— 2026-10-02
 - [x] 仓库初始化 + GitHub Flow 配置（远程 origin 就绪）— 2026-10-02 · `0b8e4f9`
 - [x] CLAUDE.md / README.md 建立 — 2026-10-02
-- [ ] **Phase 0**：脚手架（Django+DRF+JWT / React+Tailwind+i18n / docker-compose / LLM Adapter / API-Key 加密 / §11.0 部署约定）
+- [x] **Phase 0**：脚手架 — 2026-10-02 · `feature/phase-0-scaffold`
+  - 后端：uv + Django 6.1 + DRF + SimpleJWT + CORS + env 配置；apps 六件套骨架；`core/`（LLM Adapter 流式/OpenAI 兼容、Fernet 加密、TASK_MODE/STORAGE 抽象、SSE 工具、healthz、MinerU client 接口）
+  - accounts：注册/登录/JWT/me + ProviderCredential（加密落库、掩码回读、validate 端点）— 7 测试全过
+  - 前端：React 18 + TS + Tailwind v4 + i18n（zh/en 双语全量文案）+ 路由骨架 + JWT API 客户端 + 设计 token；Home/登录/注册/骨架页
+  - 部署接线：docker-compose（dev + 完整版）、Makefile、.env.example、gunicorn SSE 配置、nginx 反代
+  - **UI 自查完成**（Playwright + Chromium，390/768/1280 三断点，无溢出、排版正常；截图脚本固化为 `npm run shots`）
+  - 注册体验修复 — 2026-10-02：报错改为逐字段内联显示（用户名占用/密码规则等真实原因）；密码策略（8–64 位 + 大写 + 小写 + 特殊字符）前后端双侧实施，注册页实时规则清单，DOM 级 E2E 断言通过
 - [ ] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本
 - [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收
@@ -606,8 +612,11 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
 - [ ] **Phase 5**：F4 综合总结报告 + 简历 diff 修改建议闭环
 - [ ] **Phase 6**：UI 打磨 + 多端实测 + 双语审校 + 两版部署落地（v1.0）
 
+**遗留问题**：本机 8000 端口被其他服务占用，本地跑后端用 8010（`VITE_API_PROXY=http://127.0.0.1:8010` 启动前端代理）；`apps.sessions` 的 Django label 为 `sparr_sessions`（避开内置 sessions 冲突）。
+
 **发布记录**：（main 合并/推送均需涵哥同意后执行）
 
 | 版本 | 日期 | 内容 | commit |
 |---|---|---|---|
-| —（基线）| 2026-10-02 | 文档基线：PLAN.md + CLAUDE.md + README.md | 待推送 |
+| —（基线）| 2026-10-02 | 文档基线：PLAN.md + CLAUDE.md + README.md，已推送 origin/main | `0b8e4f9` + `c326a75` |
+| **v0.1** | 2026-10-02 | Phase 0：脚手架（后端六 app + core 基建 + LLM 适配层 + API-Key 加密管理；前端双语骨架 + 设计体系；Docker 双版本部署接线；注册体验修复 + 密码策略） | `319dd6d` |

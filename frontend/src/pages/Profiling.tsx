@@ -30,7 +30,7 @@ function MatchCard({ ev }: { ev: MatchEval }) {
       ? `${ev.job.title} · ${ev.job.level}`
       : ''
   return (
-    <div className="rounded-2xl border border-line px-6 py-5">
+    <div className="animate-fade rounded-2xl border border-line px-6 py-5">
       <div className="flex items-start gap-4">
         <ScoreBadge score={ev.score} />
         <div className="min-w-0 flex-1">
@@ -85,6 +85,23 @@ function MatchCard({ ev }: { ev: MatchEval }) {
         >
           {t('profiling.startMock')}
         </Link>
+      </div>
+    </div>
+  )
+}
+
+/** Animated placeholder shown while waiting for streamed results. */
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-line px-6 py-5">
+      <div className="flex items-start gap-4">
+        <div className="h-12 w-12 shrink-0 rounded-full bg-surface" />
+        <div className="flex-1 space-y-2.5">
+          <div className="h-3.5 w-1/3 rounded bg-surface" />
+          <div className="h-3 w-5/6 rounded bg-surface" />
+          <div className="h-3 w-2/3 rounded bg-surface" />
+          <div className="h-3 w-3/4 rounded bg-surface" />
+        </div>
       </div>
     </div>
   )
@@ -218,15 +235,59 @@ export default function Profiling() {
       {/* AI evaluations */}
       {(evals.length > 0 || streaming) && (
         <section className="mt-8">
-          <h2 className="text-[15px] font-medium text-ink">{t('profiling.aiTitle')}</h2>
-          <p className="mt-1 text-[11.5px] text-faint">
-            {t('profiling.modelNote', { model: evals[0]?.model_name || 'mimo-v2.6-flash' })}
-          </p>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="text-[15px] font-medium text-ink">{t('profiling.aiTitle')}</h2>
+            <p className="text-[11.5px] text-faint">
+              {t('profiling.modelNote', { model: evals[0]?.model_name || 'mimo-v2.6-flash' })}
+            </p>
+          </div>
+
+          {/* live progress while streaming */}
+          {streaming && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-[11.5px] text-muted">
+                <span>
+                  {t('profiling.streamProgress', {
+                    done: progress.done,
+                    total: progress.total || 12,
+                  })}
+                </span>
+                <span className="text-faint">{t('profiling.streamHint')}</span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface">
+                <div
+                  className="h-full rounded-full bg-accent transition-all duration-500"
+                  style={{
+                    width: `${Math.round((progress.done / (progress.total || 12)) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="mt-4 space-y-4">
             {evals.map((ev, i) => (
               <MatchCard key={ev.id ?? `local-${i}`} ev={ev} />
             ))}
+
+            {/* skeletons while waiting for the first cards */}
+            {streaming &&
+              Array.from({ length: Math.min(2, (progress.total || 12) - progress.done) }).map(
+                (_, i) => <SkeletonCard key={`sk-${i}`} />,
+              )}
           </div>
+
+          {/* tail: still working on the rest */}
+          {streaming && progress.done > 0 && (
+            <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-dashed border-line px-5 py-3.5">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+              <span className="text-[12.5px] text-muted">
+                {t('profiling.tailLoading', {
+                  count: Math.max((progress.total || 12) - progress.done, 0),
+                })}
+              </span>
+            </div>
+          )}
         </section>
       )}
 

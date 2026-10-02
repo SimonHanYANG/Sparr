@@ -80,7 +80,8 @@ class ParsePipelineTests(APITestCase):
              patch("apps.resumes.extraction.extract_structured",
                    return_value=SAMPLE_STRUCTURED) as mock_extract:
             MockMinerU.return_value.submit_pdf.return_value = "batch-1"
-            MockMinerU.return_value.wait_for_result.return_value = {"markdown": "# 简历", "state": "done"}
+            MockMinerU.return_value.wait_for_result.return_value = {"state": "done"}
+            MockMinerU.return_value.fetch_markdown.return_value = "# 简历"
             mock_pick.return_value = MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
                                                model_name="", base_url="")
             from .tasks import parse_resume_task
@@ -90,9 +91,36 @@ class ParsePipelineTests(APITestCase):
         self.resume.refresh_from_db()
         self.assertEqual(self.resume.parse_status, "parsed")
         self.assertEqual(self.resume.mineru_markdown, "# 简历")
+        self.assertEqual(self.resume.mineru_batch_id, "accurate:batch-1")
         self.assertEqual(self.resume.current_version.version_no, 1)
         self.assertEqual(self.resume.current_version.structured_json["basics"]["name"], "张三")
         mock_extract.assert_called_once()
+
+    def test_accurate_timeout_falls_back_to_agent_parse(self):
+        self._mineru_credential()
+        with patch("apps.resumes.tasks.read_upload", return_value=pdf_bytes()), \
+             patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
+             patch("apps.resumes.tasks._pick_llm_credential") as mock_pick, \
+             patch("apps.resumes.extraction.extract_structured",
+                   return_value=SAMPLE_STRUCTURED):
+            from core.mineru_client import MinerUTimeout
+
+            inst = MockMinerU.return_value
+            inst.submit_pdf.return_value = "batch-1"
+            inst.wait_for_result.side_effect = MinerUTimeout("slow")
+            inst.submit_pdf_agent.return_value = "task-9"
+            inst.wait_for_agent_result.return_value = {"state": "done"}
+            inst.fetch_agent_markdown.return_value = "# 轻量解析"
+            mock_pick.return_value = MagicMock(provider="deepseek", reveal_api_key=lambda: "k",
+                                               model_name="", base_url="")
+            from .tasks import parse_resume_task
+
+            parse_resume_task(self.resume.pk)
+
+        self.resume.refresh_from_db()
+        self.assertEqual(self.resume.parse_status, "parsed")
+        self.assertEqual(self.resume.mineru_markdown, "# 轻量解析")
+        self.assertEqual(self.resume.mineru_batch_id, "agent:task-9")
 
     def test_parse_without_mineru_key_fails_clearly(self):
         from .tasks import parse_resume_task
@@ -108,7 +136,8 @@ class ParsePipelineTests(APITestCase):
              patch("apps.resumes.tasks.MinerUClient") as MockMinerU, \
              patch("apps.resumes.tasks._pick_llm_credential", return_value=None):
             MockMinerU.return_value.submit_pdf.return_value = "batch-1"
-            MockMinerU.return_value.wait_for_result.return_value = {"markdown": "# 简历"}
+            MockMinerU.return_value.wait_for_result.return_value = {"state": "done"}
+            MockMinerU.return_value.fetch_markdown.return_value = "# 简历"
             from .tasks import parse_resume_task
 
             parse_resume_task(self.resume.pk)

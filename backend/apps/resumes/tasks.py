@@ -2,19 +2,23 @@
 
 Runs via core.tasks.dispatch (celery or lite thread) — never blocking the
 upload request (PLAN.md §5.1).
+
+MinerU strategy (user requirement): 🎯 accurate parse first; if the cloud
+queue is still slow after MINERU_ACCURATE_PATIENCE seconds, fall back to
+⚡ Agent lightweight parse. Full contract in core/mineru_client.py.
 """
 import logging
-
-from django.utils import timezone
+import os
 
 from core.llm_adapter import LLMClient
-from core.mineru_client import MinerUClient, MinerUError
+from core.mineru_client import MinerUClient, MinerUError, MinerUTimeout
 from core.storage import read_upload
 from core.tasks import background
 
 logger = logging.getLogger(__name__)
 
-MARKDOWN_KEYS = ("markdown", "md", "md_text", "md_url", "extract_result", "content")
+# How long to wait on the accurate queue before falling back to Agent parse.
+ACCURATE_PATIENCE_S = int(os.environ.get("MINERU_ACCURATE_PATIENCE", "300"))
 
 
 def _pick_llm_credential(user):
@@ -28,19 +32,22 @@ def _pick_llm_credential(user):
     return None
 
 
-def _markdown_from_result(item: dict) -> str:
-    """Pull markdown text (or download it) out of a MinerU done-result item."""
-    import httpx
-
-    for key in MARKDOWN_KEYS:
-        value = item.get(key)
-        if isinstance(value, str) and value.strip():
-            if value.lstrip().startswith("http"):
-                resp = httpx.get(value, timeout=60)
-                resp.raise_for_status()
-                return resp.text
-            return value
-    raise MinerUError(f"no markdown in MinerU result (keys: {list(item.keys())})")
+def parse_markdown(client: MinerUClient, content: bytes, filename: str, resume) -> str:
+    """Accurate parse with Agent lightweight fallback (returns markdown text)."""
+    try:
+        batch_id = client.submit_pdf(content, filename)
+        resume.mineru_batch_id = f"accurate:{batch_id}"
+        resume.save(update_fields=["mineru_batch_id", "updated_at"])
+        item = client.wait_for_result(batch_id, timeout_s=ACCURATE_PATIENCE_S)
+        return client.fetch_markdown(item)
+    except MinerUTimeout:
+        logger.info("accurate parse slow (batch %s) — falling back to Agent parse",
+                    resume.mineru_batch_id)
+        task_id = client.submit_pdf_agent(content, filename)
+        resume.mineru_batch_id = f"agent:{task_id}"
+        resume.save(update_fields=["mineru_batch_id", "updated_at"])
+        item = client.wait_for_agent_result(task_id)
+        return client.fetch_agent_markdown(item)
 
 
 @background
@@ -54,17 +61,13 @@ def parse_resume_task(resume_id: int) -> None:
     resume.save(update_fields=["parse_status", "parse_error", "updated_at"])
 
     try:
-        # 1. MinerU parse
+        # 1. MinerU parse (accurate -> agent fallback)
         mineru_cred = resume.user.credentials.filter(provider="mineru").first()
         if not mineru_cred:
             raise MinerUError("请先在「设置」中添加 MinerU API-Key")
         client = MinerUClient(mineru_cred.reveal_api_key())
         content = read_upload(resume.source_path)
-        batch_id = client.submit_pdf(content, resume.source_filename)
-        resume.mineru_batch_id = batch_id
-        resume.save(update_fields=["mineru_batch_id", "updated_at"])
-        result = client.wait_for_result(batch_id)
-        markdown = _markdown_from_result(result)
+        markdown = parse_markdown(client, content, resume.source_filename, resume)
         resume.mineru_markdown = markdown
 
         # 2. LLM structured extraction

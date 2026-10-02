@@ -609,7 +609,7 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - MinerU API v4 契约实测摸清：`POST file-urls/batch` → 预签名 OSS **PUT（禁止带 Content-Type）** → `GET extract-results/batch/{id}` 轮询（waiting-file→pending→done/failed）
   - 后端：Resume/ResumeVersion 模型、上传 API（PDF≤10MB）、后台解析管线（dispatch）→ MinerU → LLM 结构化抽取（严格 schema + 重试）、版本创建/回滚/重解析 — 20 测试全绿
   - 前端：简历列表（上传+状态轮询）、卡片式在线简历、结构化编辑器（保存即新版本）、版本历史/回滚、解析原文对照；UI 自查通过（DOM 断言：编辑→保存→版本历史全链路）
-  - ⚠️ 待确认：MinerU 云端队列今日极慢，真实 PDF 的最终结果字段形态等队列返回后最后核对（已做防御性多键解析兜底）
+  - MinerU 双模式策略（按官方文档 https://mineru.net/apiManage/docs 实现）：**🎯 精准解析优先**（`full_zip_url` 取 `full.md`，`model_version=vlm`）→ 队列超过 `MINERU_ACCURATE_PATIENCE`（默认 300s）**降级 ⚡ Agent 轻量解析**（`/api/v1/agent/parse/*`，免 token，`markdown_url` 直取）——已用真实 CV 实测：精准超时降级后轻量解析成功（5209 字符/228 行）
 - [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收
 - [ ] **Phase 4**：F3 基础笔试 + 代码笔试（组卷 / 判卷 / CodeMirror）

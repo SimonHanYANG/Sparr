@@ -1,14 +1,32 @@
-"""MinerU open API v4 client for resume PDF parsing (PLAN.md §5.1).
+"""MinerU open API client (docs: https://mineru.net/apiManage/docs).
 
-Contract verified live against https://mineru.net/api/v4 (2026-10-02):
-1. POST /file-urls/batch  {files:[{name}]}            -> {batch_id, file_urls:[presigned OSS url]}
-2. PUT  <presigned url>   (raw bytes, NO Content-Type) — adding Content-Type breaks the signature
-3. GET  /extract-results/batch/{batch_id}             -> {extract_result:[{file_name, state, err_msg, ...}]}
-   state machine: waiting-file -> pending -> done | failed
+Two parsing modes — the pipeline prefers accurate and falls back to the
+lightweight Agent API when the cloud queue is slow (user requirement):
 
-User-supplied API key (ProviderCredential, decrypted in memory only).
+🎯 精准解析 (accurate, token required)
+   POST /api/v4/file-urls/batch   {files:[{name}], is_ocr, enable_table,
+                                   enable_formula, language, model_version}
+     -> {batch_id, file_urls:[presigned OSS url]}
+   PUT  <presigned url>  raw bytes, NO Content-Type (signature covers it)
+   GET  /api/v4/extract-results/batch/{batch_id}
+     -> {extract_result:[{file_name, state, err_msg, full_zip_url,
+                          extract_progress{extracted_pages,total_pages}}]}
+   states: waiting-file | pending | running | converting | done | failed
+   done output: full_zip_url — zip containing full.md (markdown) + jsons
+
+⚡ Agent 轻量解析 (lightweight, NO token — IP rate-limited)
+   POST /api/v1/agent/parse/file {file_name, language, enable_table, is_ocr}
+     -> {task_id, file_url}
+   PUT  <file_url>  raw bytes (same rule)
+   GET  /api/v1/agent/parse/{task_id}
+     -> {task_id, state, markdown_url, err_msg, err_code}
+   states: waiting-file | uploading | pending | running | done | failed
+   done output: markdown_url — CDN link to full.md
+   limits: ≤10MB, ≤20 pages, single file
 """
+import io
 import time
+import zipfile
 
 import httpx
 from django.conf import settings
@@ -19,6 +37,9 @@ class MinerUError(Exception):
 
 
 class MinerUClient:
+    ACCURATE = "accurate"
+    AGENT = "agent"
+
     def __init__(self, api_key: str, base_url: str | None = None):
         self.api_key = api_key
         self.base_url = (base_url or settings.MINERU_BASE_URL).rstrip("/")
@@ -43,22 +64,23 @@ class MinerUClient:
         return False, f"MinerU HTTP {resp.status_code}: {str(body)[:200]}"
 
     # ------------------------------------------------------------------
-    def submit_pdf(self, content: bytes, filename: str) -> str:
-        """Upload one PDF and start extraction; returns batch_id for polling."""
-        with httpx.Client(timeout=120) as client:
-            resp = client.post(f"{self.base_url}/file-urls/batch", headers=self._headers(),
-                               json={"files": [{"name": filename}]})
-            body = _safe_json(resp)
-            if body.get("code") != 0 or not body.get("data"):
-                raise MinerUError(f"MinerU upload-url request failed: {str(body)[:300]}")
-            batch_id = body["data"]["batch_id"]
-            upload_url = body["data"]["file_urls"][0]
-
-            # NO Content-Type header — the presigned signature forbids it
-            put = client.put(upload_url, content=content)
-            if put.status_code != 200:
-                raise MinerUError(f"MinerU OSS upload failed: HTTP {put.status_code}")
-            return batch_id
+    # 🎯 精准解析
+    # ------------------------------------------------------------------
+    def submit_pdf(self, content: bytes, filename: str, *,
+                   is_ocr: bool = True, language: str = "ch",
+                   model_version: str = "vlm") -> str:
+        """Accurate parse: upload one PDF and start extraction; returns batch_id."""
+        payload = {
+            "files": [{"name": filename}],
+            "is_ocr": is_ocr,
+            "enable_table": True,
+            "enable_formula": True,
+            "language": language,
+            "model_version": model_version,
+        }
+        batch_id, upload_url = self._request_upload_urls(payload)
+        self._put_file(upload_url, content)
+        return batch_id
 
     def get_results(self, batch_id: str) -> list[dict]:
         resp = httpx.get(f"{self.base_url}/extract-results/batch/{batch_id}",
@@ -68,11 +90,12 @@ class MinerUClient:
             raise MinerUError(f"MinerU result poll failed: {str(body)[:300]}")
         return (body.get("data") or {}).get("extract_result") or []
 
-    def wait_for_result(self, batch_id: str, timeout_s: int = 1200, interval_s: float = 3.0) -> dict:
-        """Poll until state is done/failed; returns the file result dict.
+    def wait_for_result(self, batch_id: str, timeout_s: int = 1200,
+                        interval_s: float = 3.0) -> dict:
+        """Poll accurate-parse until done/failed/timeout.
 
-        Interval backs off 3s -> 10s: MinerU's cloud queue can hold tasks for
-        several minutes (observed live), so long waits must stay cheap.
+        Returns the file result dict; raises MinerUError on failed/timeout.
+        Interval backs off 3s -> 10s (cloud queue can hold tasks for minutes).
         """
         deadline = time.monotonic() + timeout_s
         started = time.monotonic()
@@ -90,7 +113,89 @@ class MinerUClient:
                     raise MinerUError(f"MinerU parse failed: {item.get('err_msg', 'unknown')[:300]}")
             waited = time.monotonic() - started
             time.sleep(min(10.0, interval_s + waited / 60.0))
-        raise MinerUError(f"MinerU parse timed out after {timeout_s}s (last state: {last_state or 'unknown'})")
+        raise MinerUTimeout(f"accurate parse still '{last_state or 'unknown'}' after {timeout_s}s")
+
+    def fetch_markdown(self, result_item: dict) -> str:
+        """Accurate-parse done item -> markdown text (full.md inside full_zip_url)."""
+        zip_url = result_item.get("full_zip_url")
+        if not zip_url:
+            raise MinerUError(f"no full_zip_url in result (keys: {list(result_item.keys())})")
+        resp = httpx.get(zip_url, timeout=120)
+        resp.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            for name in zf.namelist():
+                if name.endswith("full.md"):
+                    return zf.read(name).decode("utf-8", errors="replace")
+        raise MinerUError(f"full.md not found in zip (files: {zf.namelist()[:10]})")
+
+    # ------------------------------------------------------------------
+    # ⚡ Agent 轻量解析 (no token)
+    # ------------------------------------------------------------------
+    def submit_pdf_agent(self, content: bytes, filename: str, *,
+                         is_ocr: bool = True, language: str = "ch") -> str:
+        """Lightweight Agent parse; returns task_id. Limits: ≤10MB, ≤20 pages."""
+        resp = httpx.post(
+            "https://mineru.net/api/v1/agent/parse/file",
+            json={"file_name": filename, "language": language,
+                  "enable_table": True, "is_ocr": is_ocr},
+            timeout=60,
+        )
+        body = _safe_json(resp)
+        data = body.get("data") or {}
+        if body.get("code") != 0 or not data.get("task_id"):
+            raise MinerUError(f"agent parse submit failed: {str(body)[:300]}")
+        self._put_file(data["file_url"], content)
+        return data["task_id"]
+
+    def wait_for_agent_result(self, task_id: str, timeout_s: int = 600,
+                              interval_s: float = 3.0) -> dict:
+        deadline = time.monotonic() + timeout_s
+        started = time.monotonic()
+        last_state = ""
+        while time.monotonic() < deadline:
+            resp = httpx.get(f"https://mineru.net/api/v1/agent/parse/{task_id}", timeout=30)
+            body = _safe_json(resp)
+            data = body.get("data") or {}
+            state = data.get("state", "")
+            if state != last_state:
+                last_state = state
+            if state == "done":
+                return data
+            if state == "failed":
+                raise MinerUError(
+                    f"agent parse failed: {data.get('err_msg', 'unknown')[:200]} "
+                    f"(err_code={data.get('err_code')})")
+            waited = time.monotonic() - started
+            time.sleep(min(10.0, interval_s + waited / 60.0))
+        raise MinerUError(f"agent parse timed out after {timeout_s}s (last state: {last_state})")
+
+    def fetch_agent_markdown(self, agent_item: dict) -> str:
+        url = agent_item.get("markdown_url")
+        if not url:
+            raise MinerUError(f"no markdown_url in agent result (keys: {list(agent_item.keys())})")
+        resp = httpx.get(url, timeout=120)
+        resp.raise_for_status()
+        return resp.text
+
+    # ------------------------------------------------------------------
+    def _request_upload_urls(self, payload: dict) -> tuple[str, str]:
+        resp = httpx.post(f"{self.base_url}/file-urls/batch",
+                          headers=self._headers(), json=payload, timeout=60)
+        body = _safe_json(resp)
+        if body.get("code") != 0 or not body.get("data"):
+            raise MinerUError(f"MinerU upload-url request failed: {str(body)[:300]}")
+        return body["data"]["batch_id"], body["data"]["file_urls"][0]
+
+    @staticmethod
+    def _put_file(upload_url: str, content: bytes) -> None:
+        # NO Content-Type header — the presigned signature forbids it
+        put = httpx.put(upload_url, content=content, timeout=300)
+        if put.status_code != 200:
+            raise MinerUError(f"MinerU OSS upload failed: HTTP {put.status_code}")
+
+
+class MinerUTimeout(MinerUError):
+    """Accurate parse exceeded the patience window — caller may fall back to Agent."""
 
 
 def _safe_json(resp: httpx.Response) -> dict:

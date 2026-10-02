@@ -78,9 +78,16 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # ---------------------------------------------------------------------------
-# Database — DATABASE_URL, e.g. postgres://user:pass@host:5432/db or sqlite:///db.sqlite3
+# Database — DATABASE_URL, e.g. postgres://user:pass@host:5432/db or sqlite:///backend/db.sqlite3
+# Relative sqlite paths resolve against the repo root (BASE_DIR.parent).
 # ---------------------------------------------------------------------------
 DATABASES = {"default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")}
+if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+    from pathlib import Path as _Path
+
+    _name = _Path(DATABASES["default"]["NAME"])
+    if not _name.is_absolute():
+        DATABASES["default"]["NAME"] = str((BASE_DIR.parent / _name).resolve())
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

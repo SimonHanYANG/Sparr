@@ -4,6 +4,8 @@ import Layout from './components/Layout'
 import Auth from './pages/Auth'
 import Home from './pages/Home'
 import Placeholder from './pages/Placeholder'
+import ResumeDetail from './pages/ResumeDetail'
+import Resumes from './pages/Resumes'
 import { useAuth } from './stores/auth'
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -24,7 +26,15 @@ export default function App() {
           path="resumes"
           element={
             <RequireAuth>
-              <Placeholder titleKey="page.resumesTitle" descKey="page.resumesDesc" />
+              <Resumes />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="resumes/:id"
+          element={
+            <RequireAuth>
+              <ResumeDetail />
             </RequireAuth>
           }
         />

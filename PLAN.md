@@ -605,7 +605,11 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - 部署接线：docker-compose（dev + 完整版）、Makefile、.env.example、gunicorn SSE 配置、nginx 反代
   - **UI 自查完成**（Playwright + Chromium，390/768/1280 三断点，无溢出、排版正常；截图脚本固化为 `npm run shots`）
   - 注册体验修复 — 2026-10-02：报错改为逐字段内联显示（用户名占用/密码规则等真实原因）；密码策略（8–64 位 + 大写 + 小写 + 特殊字符）前后端双侧实施，注册页实时规则清单，DOM 级 E2E 断言通过
-- [ ] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本
+- [x] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本 — 2026-10-02 · `feature/phase-1-resume`
+  - MinerU API v4 契约实测摸清：`POST file-urls/batch` → 预签名 OSS **PUT（禁止带 Content-Type）** → `GET extract-results/batch/{id}` 轮询（waiting-file→pending→done/failed）
+  - 后端：Resume/ResumeVersion 模型、上传 API（PDF≤10MB）、后台解析管线（dispatch）→ MinerU → LLM 结构化抽取（严格 schema + 重试）、版本创建/回滚/重解析 — 20 测试全绿
+  - 前端：简历列表（上传+状态轮询）、卡片式在线简历、结构化编辑器（保存即新版本）、版本历史/回滚、解析原文对照；UI 自查通过（DOM 断言：编辑→保存→版本历史全链路）
+  - ⚠️ 待确认：MinerU 云端队列今日极慢，真实 PDF 的最终结果字段形态等队列返回后最后核对（已做防御性多键解析兜底）
 - [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收
 - [ ] **Phase 4**：F3 基础笔试 + 代码笔试（组卷 / 判卷 / CodeMirror）

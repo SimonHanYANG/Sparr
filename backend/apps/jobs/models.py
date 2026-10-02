@@ -1,4 +1,5 @@
 """Job catalog — one shared definition drives 推荐 / 笔试出题 / 面试重点 (PLAN.md §5.2)."""
+from django.conf import settings
 from django.db import models
 
 
@@ -43,3 +44,48 @@ class JobPosition(models.Model):
 
     def __str__(self) -> str:
         return f"{self.title}({self.level})"
+
+
+class JobProfile(models.Model):
+    """User-defined position from a pasted JD — any job, not just the catalog."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="job_profiles")
+    title = models.CharField(max_length=200)
+    jd_text = models.TextField()
+    category = models.CharField(max_length=10, blank=True, default="")
+    level = models.CharField(max_length=10, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class MatchAnalysis(models.Model):
+    """LLM match evaluation of a resume version against one position.
+
+    Score/gaps are grounded in the JD's own requirement clauses (user feedback:
+    gaps must map to what the JD asks, not generic skill diffs).
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="match_analyses")
+    resume_version = models.ForeignKey("resumes.ResumeVersion", on_delete=models.CASCADE,
+                                       related_name="match_analyses")
+    job = models.ForeignKey(JobPosition, null=True, blank=True,
+                            on_delete=models.CASCADE, related_name="match_analyses")
+    job_profile = models.ForeignKey(JobProfile, null=True, blank=True,
+                                    on_delete=models.CASCADE, related_name="match_analyses")
+    model_name = models.CharField(max_length=100, blank=True, default="")
+    score = models.FloatField()
+    summary = models.TextField(blank=True, default="")
+    matched = models.JSONField(default=list)
+    gaps = models.JSONField(default=list)
+    advice = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]

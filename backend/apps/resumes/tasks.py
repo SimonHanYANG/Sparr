@@ -15,6 +15,7 @@ import hashlib
 import logging
 import os
 
+from apps.accounts.llm import pick_llm as _pick_llm
 from core.llm_adapter import LLMClient
 from core.mineru_client import MinerUClient, MinerUError, MinerUTimeout
 from core.storage import read_upload
@@ -24,35 +25,6 @@ logger = logging.getLogger(__name__)
 
 # How long to wait on the accurate queue before falling back to Agent parse.
 ACCURATE_PATIENCE_S = int(os.environ.get("MINERU_ACCURATE_PATIENCE", "300"))
-
-
-def _pick_llm(user):
-    """Pick (credential, model_name) honoring the user's UI preference.
-
-    Order: explicit UserPreference -> site default (mimo / mimo-v2.6-flash,
-    see settings.DEFAULT_LLM_*) -> any stored LLM credential.
-    Returns (cred, model) or (None, None).
-    """
-    from django.conf import settings as dj_settings
-
-    from apps.accounts.models import ProviderCredential, UserPreference
-
-    creds = {c.provider: c for c in user.credentials.all()}
-    pref = getattr(user, "llm_preference", None)
-    if pref and pref.llm_provider and pref.llm_provider in creds:
-        cred = creds[pref.llm_provider]
-        return cred, (pref.llm_model or cred.model_name or None)
-
-    default_provider = dj_settings.DEFAULT_LLM_PROVIDER
-    if default_provider in creds:
-        cred = creds[default_provider]
-        model = dj_settings.DEFAULT_LLM_MODEL or cred.model_name or None
-        return cred, model
-
-    for provider in ("mimo", "deepseek"):
-        if provider in creds:
-            return creds[provider], (creds[provider].model_name or None)
-    return None, None
 
 
 def parse_markdown(client: MinerUClient, content: bytes, filename: str, resume) -> str:

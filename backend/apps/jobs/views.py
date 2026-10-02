@@ -1,8 +1,15 @@
-"""Job catalog browse API."""
+"""Job APIs: catalog browse, custom JD profiles, LLM match analysis."""
+from django.shortcuts import get_object_or_404
+from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import JobPosition
+from apps.accounts.llm import pick_llm
+from apps.resumes.models import Resume, ResumeVersion
+from core.llm_adapter import LLMClient
+
+from .analysis import analyze_catalog, analyze_match
+from .models import JobPosition, JobProfile, MatchAnalysis
 
 
 @api_view(["GET"])
@@ -26,3 +33,141 @@ def job_list(request):
         }
         for j in qs
     ])
+
+
+class JobProfileViewSet(viewsets.ModelViewSet):
+    """Custom positions from pasted JDs — any job, not just the catalog."""
+
+    http_method_names = ["get", "post", "delete"]
+
+    def get_queryset(self):
+        return JobProfile.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        title = (request.data.get("title") or "").strip()
+        jd_text = (request.data.get("jd_text") or "").strip()
+        if not title or not jd_text:
+            return Response({"detail": "title 与 jd_text 必填"}, status=status.HTTP_400_BAD_REQUEST)
+        profile = JobProfile.objects.create(
+            user=request.user, title=title[:200], jd_text=jd_text,
+            category=request.data.get("category", "")[:10],
+            level=request.data.get("level", "")[:10],
+        )
+        return Response(_profile_payload(profile), status=status.HTTP_201_CREATED)
+
+    def list(self, request, *args, **kwargs):
+        return Response([_profile_payload(p) for p in self.get_queryset()])
+
+    def retrieve(self, request, *args, **kwargs):
+        return Response(_profile_payload(self.get_object()))
+
+
+def _profile_payload(p: JobProfile) -> dict:
+    return {"id": p.id, "title": p.title, "jd_text": p.jd_text,
+            "category": p.category, "level": p.level, "created_at": p.created_at}
+
+
+def _resolve_resume_version(request):
+    resume_id = request.data.get("resume_id")
+    if resume_id:
+        resume = get_object_or_404(Resume, pk=resume_id, user=request.user)
+        if not resume.current_version:
+            return None
+        return resume.current_version
+    resume = (Resume.objects.filter(user=request.user, current_version__isnull=False)
+              .order_by("-updated_at").first())
+    return resume.current_version if resume else None
+
+
+def _llm_or_400(request):
+    cred, model = pick_llm(request.user)
+    if not cred:
+        return None, None, Response({"detail": "请先在设置中配置大模型 API-Key"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+    llm = LLMClient(provider=cred.provider, api_key=cred.reveal_api_key(),
+                    model=model, base_url=cred.base_url or None)
+    return llm, model, None
+
+
+def _analysis_payload(a: MatchAnalysis) -> dict:
+    return {
+        "id": a.id, "score": a.score, "summary": a.summary,
+        "matched": a.matched, "gaps": a.gaps, "advice": a.advice,
+        "model_name": a.model_name, "created_at": a.created_at,
+        "job": ({"id": a.job_id, "title": a.job.title, "category": a.job.category,
+                 "level": a.job.level} if a.job_id else None),
+        "job_profile": ({"id": a.job_profile_id, "title": a.job_profile.title}
+                        if a.job_profile_id else None),
+    }
+
+
+@api_view(["POST"])
+def analyze(request):
+    """Analyze one position (job_id preset OR job_profile_id custom) vs resume."""
+    version = _resolve_resume_version(request)
+    if version is None:
+        return Response({"detail": "没有可分析的简历版本"}, status=status.HTTP_400_BAD_REQUEST)
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    job = job_profile = None
+    if request.data.get("job_profile_id"):
+        job_profile = get_object_or_404(JobProfile, pk=request.data["job_profile_id"],
+                                        user=request.user)
+        job_title, jd_text = job_profile.title, job_profile.jd_text
+    elif request.data.get("job_id"):
+        job = get_object_or_404(JobPosition, pk=request.data["job_id"], is_active=True)
+        job_title = f"{job.title}（{job.level}）"
+        jd_text = (f"{job.description}\n岗位要求："
+                   + "；".join(f"{r['skill']}({'必会' if r.get('required') else '加分'})"
+                              for r in job.skill_requirements)
+                   + f"\n面试重点：{'、'.join(job.interview_focus)}")
+    else:
+        return Response({"detail": "需要 job_id 或 job_profile_id"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        eval_data = analyze_match(llm, version.structured_json,
+                                  job_title=job_title, jd_text=jd_text)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    analysis = MatchAnalysis.objects.create(
+        user=request.user, resume_version=version, job=job, job_profile=job_profile,
+        model_name=f"{llm.provider}/{llm.model}",
+        score=eval_data["score"], summary=eval_data["summary"],
+        matched=eval_data["matched"], gaps=eval_data["gaps"], advice=eval_data["advice"],
+    )
+    return Response(_analysis_payload(analysis), status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+def analyze_catalog_view(request):
+    """LLM-evaluate the whole preset catalog against a resume (replaces rule scores)."""
+    version = _resolve_resume_version(request)
+    if version is None:
+        return Response({"detail": "没有可分析的简历版本"}, status=status.HTTP_400_BAD_REQUEST)
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    jobs = list(JobPosition.objects.filter(is_active=True))
+    try:
+        evals = analyze_catalog(llm, version.structured_json, jobs)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    by_id = {j.id: j for j in jobs}
+    payload = []
+    for ev in sorted(evals, key=lambda e: -e["score"]):
+        job = by_id[ev["job_id"]]
+        analysis = MatchAnalysis.objects.create(
+            user=request.user, resume_version=version, job=job,
+            model_name=f"{llm.provider}/{llm.model}",
+            score=ev["score"], summary=ev.get("summary", ""),
+            matched=ev.get("matched", []), gaps=ev.get("gaps", []),
+            advice=ev.get("advice", []),
+        )
+        payload.append(_analysis_payload(analysis))
+    return Response(payload)

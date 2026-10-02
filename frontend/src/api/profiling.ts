@@ -8,20 +8,23 @@ export interface Portrait {
   direction_scores: Record<string, number>
 }
 
-export interface Recommendation {
-  id: number
-  job: { id: number; title: string; category: string; level: string; description: string }
+export interface MatchEval {
+  id?: number
   score: number
-  matched_skills: { skill: string; weight: number; level: number }[]
-  gap_skills: { skill: string; weight: number; required: boolean }[]
-  reasons: string[]
+  summary: string
+  matched: { requirement: string; evidence: string }[]
+  gaps: { requirement: string; status: string; advice: string }[]
+  advice: string[]
+  model_name?: string
+  job?: { id: number; title: string; category: string; level: string } | null
+  job_profile?: { id: number; title: string } | null
 }
 
 export interface ProfilingResult {
   portrait: Portrait
   resume_version_id: number
   computed_at: string
-  recommendations: Recommendation[]
+  recommendations: unknown[]
 }
 
 export interface JobPosition {
@@ -37,16 +40,35 @@ export interface JobPosition {
   interview_focus: string[]
 }
 
+/** Rule-based quick signal: direction bars etc. */
 export const computePortrait = (resume_id?: number) =>
   apiFetch<ProfilingResult>('/api/profiling/compute', {
     method: 'POST',
     body: JSON.stringify(resume_id ? { resume_id } : {}),
   })
 
-export const getPortrait = (resume_id?: number) =>
-  apiFetch<ProfilingResult>(
-    `/api/profiling/portrait${resume_id ? `?resume_id=${resume_id}` : ''}`,
-  )
+/** LLM evaluations of the preset catalog (scores + JD-grounded gaps). */
+export const analyzeCatalog = () =>
+  apiFetch<MatchEval[]>('/api/jobs/analyze-catalog', { method: 'POST', body: '{}' })
+
+/** LLM analysis of one position — preset job_id or custom job_profile_id. */
+export const analyzeMatch = (payload: { job_id?: number; job_profile_id?: number }) =>
+  apiFetch<MatchEval>('/api/jobs/analyze', { method: 'POST', body: JSON.stringify(payload) })
+
+export interface JobProfile {
+  id: number
+  title: string
+  jd_text: string
+  created_at: string
+}
+
+export const listJobProfiles = () => apiFetch<JobProfile[]>('/api/jobs/profiles')
+
+export const createJobProfile = (title: string, jd_text: string) =>
+  apiFetch<JobProfile>('/api/jobs/profiles', {
+    method: 'POST',
+    body: JSON.stringify({ title, jd_text }),
+  })
 
 export const listJobs = (category?: string) =>
   apiFetch<JobPosition[]>(`/api/jobs${category ? `?category=${encodeURIComponent(category)}` : ''}`)

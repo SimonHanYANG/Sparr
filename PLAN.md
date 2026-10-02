@@ -598,7 +598,7 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
 
 > **约定（CLAUDE.md 强制）**：每完成一个有意义的增量，立即更新本表（勾选 + 日期 + commit 短号 + 遗留问题），并及时 push 对应分支。新会话从本表了解进度，不通读代码/全文。
 
-**当前阶段**：Phase 0 已发布 v0.1 · 下一步 Phase 1（简历解析）· 最近更新 2026-10-02
+**当前阶段**：Phase 1 已发布 v0.2 · 进行中 Phase 2（岗位库 + 画像规则引擎）· 最近更新 2026-10-02
 
 - [x] 需求与架构计划定稿（PLAN.md v3，含面试智能化/断点续面/双部署/i18n/多端）— 2026-10-02
 - [x] 仓库初始化 + GitHub Flow 配置（远程 origin 就绪）— 2026-10-02 · `0b8e4f9`
@@ -610,7 +610,7 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - 部署接线：docker-compose（dev + 完整版）、Makefile、.env.example、gunicorn SSE 配置、nginx 反代
   - **UI 自查完成**（Playwright + Chromium，390/768/1280 三断点，无溢出、排版正常；截图脚本固化为 `npm run shots`）
   - 注册体验修复 — 2026-10-02：报错改为逐字段内联显示（用户名占用/密码规则等真实原因）；密码策略（8–64 位 + 大写 + 小写 + 特殊字符）前后端双侧实施，注册页实时规则清单，DOM 级 E2E 断言通过
-- [x] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本 — 2026-10-02 · `feature/phase-1-resume`
+- [x] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本 — 2026-10-02 **发布 v0.2**
   - MinerU API v4 契约实测摸清：`POST file-urls/batch` → 预签名 OSS **PUT（禁止带 Content-Type）** → `GET extract-results/batch/{id}` 轮询（waiting-file→pending→done/failed）
   - 后端：Resume/ResumeVersion 模型、上传 API（PDF≤10MB）、后台解析管线（dispatch）→ MinerU → LLM 结构化抽取（严格 schema + 重试）、版本创建/回滚/重解析 — 20 测试全绿
   - 前端：简历列表（上传+状态轮询）、卡片式在线简历、结构化编辑器（保存即新版本）、版本历史/回滚、解析原文对照；UI 自查通过（DOM 断言：编辑→保存→版本历史全链路）
@@ -630,3 +630,4 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
 |---|---|---|---|
 | —（基线）| 2026-10-02 | 文档基线：PLAN.md + CLAUDE.md + README.md，已推送 origin/main | `0b8e4f9` + `c326a75` |
 | **v0.1** | 2026-10-02 | Phase 0：脚手架（后端六 app + core 基建 + LLM 适配层 + API-Key 加密管理；前端双语骨架 + 设计体系；Docker 双版本部署接线；注册体验修复 + 密码策略） | `319dd6d` |
+| **v0.2** | 2026-10-02 | Phase 1：简历上传/解析/编辑/版本全功能（MinerU 双模式+缓存、LLM 抽取默认 mimo-v2.6-flash、技能分组、换 PDF、手动创建、设置页凭据与模型偏好） | `ca68265` |

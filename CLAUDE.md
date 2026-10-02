@@ -42,6 +42,7 @@
 ## 技术栈速查
 
 - 后端：Django 5 + DRF + SimpleJWT，SSE 流式，Celery/Redis（`TASK_MODE=celery|lite` 可切换），PostgreSQL/SQLite
+- **Python 包管理一律用 uv**（`pyproject.toml` + `uv.lock`，`uv add`/`uv run`；不用 pip/poetry/conda 直接装包）
 - 前端：React 18 + TS + Vite + TailwindCSS（移动优先）+ react-i18next（zh-CN/en）+ Zustand + TanStack Query + CodeMirror 6
 - LLM：OpenAI 兼容适配层（用户自带 Key：DeepSeek v4 / MiMo 2.5/2.6）；MinerU 解析简历（用户自带 Key）
 - 部署友好约定（配置化、存储/队列抽象）见 PLAN.md §11.0，写代码时必须遵守，不许硬编码配置

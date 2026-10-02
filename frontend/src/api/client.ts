@@ -1,0 +1,69 @@
+/** Minimal API client: JWT auth, JSON, one-shot refresh on 401 (PLAN.md §6). */
+const ACCESS_KEY = 'sparr_access'
+const REFRESH_KEY = 'sparr_refresh'
+
+export function getAccessToken() {
+  return localStorage.getItem(ACCESS_KEY)
+}
+
+export function setTokens(access: string, refresh: string) {
+  localStorage.setItem(ACCESS_KEY, access)
+  localStorage.setItem(REFRESH_KEY, refresh)
+}
+
+export function clearTokens() {
+  localStorage.removeItem(ACCESS_KEY)
+  localStorage.removeItem(REFRESH_KEY)
+}
+
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function tryRefresh(): Promise<boolean> {
+  const refresh = localStorage.getItem(REFRESH_KEY)
+  if (!refresh) return false
+  const resp = await fetch('/api/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh }),
+  })
+  if (!resp.ok) return false
+  const data = await resp.json()
+  localStorage.setItem(ACCESS_KEY, data.access)
+  if (data.refresh) localStorage.setItem(REFRESH_KEY, data.refresh)
+  return true
+}
+
+export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const doFetch = () =>
+    fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+        ...options.headers,
+      },
+    })
+
+  let resp = await doFetch()
+  if (resp.status === 401 && (await tryRefresh())) {
+    resp = await doFetch()
+  }
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`
+    try {
+      const body = await resp.json()
+      detail = typeof body === 'object' ? JSON.stringify(body) : detail
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(resp.status, detail)
+  }
+  if (resp.status === 204) return undefined as T
+  return (await resp.json()) as T
+}

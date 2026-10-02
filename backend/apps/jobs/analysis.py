@@ -102,7 +102,7 @@ def analyze_catalog(llm: LLMClient, structured_resume: dict, jobs: list, on_resu
         ev["job_id"] = job.id
         return ev
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(_one, j): j for j in jobs}
         for fut in as_completed(futures):
             job = futures[fut]

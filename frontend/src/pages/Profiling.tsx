@@ -30,11 +30,11 @@ function MatchCard({ ev }: { ev: MatchEval }) {
   const keyGaps = ev.gaps.filter((g) => g.status === '未体现').slice(0, 2)
 
   return (
-    <div className="animate-fade overflow-hidden rounded-2xl border border-line">
+    <div className="animate-fade overflow-hidden rounded-2xl border border-line transition-shadow hover:shadow-sm">
       {/* collapsed header — always visible key info */}
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-start gap-4 px-6 py-5 text-left"
+        className="group flex w-full cursor-pointer items-start gap-4 px-6 py-5 text-left transition-colors hover:bg-surface/60"
       >
         <ScoreBadge score={ev.score} />
         <div className="min-w-0 flex-1">
@@ -61,16 +61,16 @@ function MatchCard({ ev }: { ev: MatchEval }) {
             </div>
           )}
         </div>
-        <span
-          className={`shrink-0 text-[12px] text-faint transition-transform ${open ? 'rotate-180' : ''}`}
-        >
-          ⌄
+        {/* clickable-looking pill: hover turns accent */}
+        <span className="flex shrink-0 items-center gap-1 rounded-full border border-line px-3 py-1 text-[11.5px] text-muted transition-colors group-hover:border-accent group-hover:text-accent">
+          {open ? t('profiling.collapse') : t('profiling.detailPill')}
+          <span className={`text-[10px] transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
         </span>
       </button>
 
       {/* expanded details */}
       {open && (
-        <div className="border-t border-line px-6 py-4">
+        <div className="animate-fade border-t border-line px-6 py-4">
           {ev.matched.length > 0 && (
             <>
               <p className="text-[11.5px] font-medium text-emerald-700">

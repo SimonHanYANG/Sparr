@@ -205,6 +205,11 @@ class VersionTests(APITestCase):
 
 
 class ExtractionHelpersTests(APITestCase):
+    def test_parse_resume_task_registered(self):
+        """Web-process regression: dispatch must find the task (upload 500 bug)."""
+        from core.tasks import _registry
+
+        self.assertIn("parse_resume_task", _registry)
     def test_parse_json_strips_fences(self):
         raw = "```json\n{\"a\": 1}\n```"
         self.assertEqual(_parse_json(raw), {"a": 1})

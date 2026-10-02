@@ -1,5 +1,9 @@
 """Background parse pipeline: PDF -> MinerU markdown -> LLM structured version.
 
+NOTE: this module MUST be imported at app startup (see apps.py ready()) so the
+@background decorator registers parse_resume_task — otherwise the web process
+dispatches into an empty registry (regression: upload 500).
+
 Runs via core.tasks.dispatch (celery or lite thread) — never blocking the
 upload request (PLAN.md §5.1).
 

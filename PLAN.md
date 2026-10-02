@@ -589,6 +589,25 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
 5. 提交规范：Conventional Commits（`feat:` `fix:` `chore:` `docs:`…），提交信息末尾附 Co-Authored-By 签名；
 6. PR/合并信息使用规范模板，发布说明列出该 Phase 的用户可见变化。
 
-### 12.3 当前状态
+### 12.3 开发进度（活文档 · 会话交接棒）
 
-- Phase 0 尚未开始；main 已有基线提交（PLAN.md + .gitignore，文档基线，未推送）。
+> **约定（CLAUDE.md 强制）**：每完成一个有意义的增量，立即更新本表（勾选 + 日期 + commit 短号 + 遗留问题），并及时 push 对应分支。新会话从本表了解进度，不通读代码/全文。
+
+**当前阶段**：Phase 0 未开始 · 当前分支 `main`（基线）· 最近更新 2026-10-02
+
+- [x] 需求与架构计划定稿（PLAN.md v3，含面试智能化/断点续面/双部署/i18n/多端）— 2026-10-02
+- [x] 仓库初始化 + GitHub Flow 配置（远程 origin 就绪）— 2026-10-02 · `0b8e4f9`
+- [x] CLAUDE.md / README.md 建立 — 2026-10-02
+- [ ] **Phase 0**：脚手架（Django+DRF+JWT / React+Tailwind+i18n / docker-compose / LLM Adapter / API-Key 加密 / §11.0 部署约定）
+- [ ] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本
+- [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
+- [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收
+- [ ] **Phase 4**：F3 基础笔试 + 代码笔试（组卷 / 判卷 / CodeMirror）
+- [ ] **Phase 5**：F4 综合总结报告 + 简历 diff 修改建议闭环
+- [ ] **Phase 6**：UI 打磨 + 多端实测 + 双语审校 + 两版部署落地（v1.0）
+
+**发布记录**：（main 合并/推送均需涵哥同意后执行）
+
+| 版本 | 日期 | 内容 | commit |
+|---|---|---|---|
+| —（基线）| 2026-10-02 | 文档基线：PLAN.md + CLAUDE.md + README.md | 待推送 |

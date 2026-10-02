@@ -21,12 +21,12 @@ class CryptoTests(APITestCase):
 class AuthFlowTests(APITestCase):
     def test_register_login_me(self):
         resp = self.client.post("/api/auth/register", {
-            "username": "han", "password": "strongpass1", "nickname": "涵哥",
+            "username": "han", "password": "Str0ng!Pass", "nickname": "涵哥",
         })
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
         resp = self.client.post("/api/auth/login", {
-            "username": "han", "password": "strongpass1",
+            "username": "han", "password": "Str0ng!Pass",
         })
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         token = resp.json()["access"]
@@ -38,6 +38,29 @@ class AuthFlowTests(APITestCase):
     def test_me_requires_auth(self):
         resp = self.client.get("/api/auth/me")
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class PasswordPolicyTests(APITestCase):
+    """core.validators.SparrPasswordValidator: 8-64 chars, upper, lower, special."""
+
+    def _register(self, password):
+        return self.client.post("/api/auth/register", {
+            "username": "pwuser", "password": password,
+        })
+
+    def test_weak_passwords_rejected(self):
+        resp = self._register("abc1!")  # too short
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", resp.json())
+
+        for pw in ["nouppercase1!", "NOLOWERCASE1!", "NoSpecial123"]:
+            resp = self._register(pw)
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, pw)
+            self.assertIn("password", resp.json())
+
+    def test_strong_password_accepted(self):
+        resp = self._register("Str0ng!Pass")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
 
 class CredentialTests(APITestCase):

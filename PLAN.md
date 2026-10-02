@@ -604,6 +604,7 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - 前端：React 18 + TS + Tailwind v4 + i18n（zh/en 双语全量文案）+ 路由骨架 + JWT API 客户端 + 设计 token；Home/登录/注册/骨架页
   - 部署接线：docker-compose（dev + 完整版）、Makefile、.env.example、gunicorn SSE 配置、nginx 反代
   - **UI 自查完成**（Playwright + Chromium，390/768/1280 三断点，无溢出、排版正常；截图脚本固化为 `npm run shots`）
+  - 注册体验修复 — 2026-10-02：报错改为逐字段内联显示（用户名占用/密码规则等真实原因）；密码策略（8–64 位 + 大写 + 小写 + 特殊字符）前后端双侧实施，注册页实时规则清单，DOM 级 E2E 断言通过
 - [ ] **Phase 1**：F1 简历上传 / MinerU 解析 / 结构化抽取 / 展示 / 编辑 / 版本
 - [ ] **Phase 2**：F2 岗位库种子数据 / 画像规则引擎 / 样本集回归测试 / 画像与推荐页
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收

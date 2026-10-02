@@ -18,9 +18,12 @@ export function clearTokens() {
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** Parsed DRF error body: { field: [messages] } or { detail: msg } */
+  detail: Record<string, unknown>
+  constructor(status: number, message: string, detail: Record<string, unknown> = {}) {
     super(message)
     this.status = status
+    this.detail = detail
   }
 }
 
@@ -55,14 +58,16 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     resp = await doFetch()
   }
   if (!resp.ok) {
-    let detail = `HTTP ${resp.status}`
+    let detail: Record<string, unknown> = {}
     try {
       const body = await resp.json()
-      detail = typeof body === 'object' ? JSON.stringify(body) : detail
+      if (typeof body === 'object' && body !== null) {
+        detail = body as Record<string, unknown>
+      }
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(resp.status, detail)
+    throw new ApiError(resp.status, `HTTP ${resp.status}`, detail)
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T

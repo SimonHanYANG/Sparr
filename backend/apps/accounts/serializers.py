@@ -1,4 +1,6 @@
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -8,12 +10,20 @@ from .models import ProviderCredential
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(write_only=True, min_length=8, max_length=64)
     nickname = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
         fields = ["id", "username", "email", "password", "nickname"]
+
+    def validate_password(self, value):
+        """Run full password policy (core.validators.SparrPasswordValidator)."""
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
 
     def create(self, validated_data):
         nickname = validated_data.pop("nickname", "")

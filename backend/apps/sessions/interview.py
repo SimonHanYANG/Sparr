@@ -48,6 +48,7 @@ PLAN_PROMPT = """你是某大厂资深技术面试官。请为「候选人」定
 4. 项目深挖 targets 只能取自简历里的真实项目；angles 要具体到该项目。
 5. 各 phase 的 target_min 之和 ≈ {duration_min}；difficulty 取 1-5。
 6. 题目 id 全局唯一（q1、q2…）。
+7. 篇幅克制（直接影响生成速度，严格遵守）：每题 followups ≤2 条且每条 ≤20 字；why ≤30 字；attack_angles ≤4 条、metrics_to_verify ≤3 条、clues ≤2 条；question_pool 每环节 2-4 题即可；除 JSON 外不要输出任何多余文字。
 
 候选人结构化简历：
 {resume}
@@ -176,14 +177,19 @@ def _validate_plan(data: dict, resume_projects: list[str] | None = None) -> dict
 def generate_plan(llm: LLMClient, structured_resume: dict, *, job_title: str,
                   jd_text: str, weak_points: list[str], quiz_weak: list[str] | None = None,
                   duration_min: int = 30, strict_mode: bool = False,
-                  max_retries: int = 2) -> dict:
-    """One LLM call -> validated plan_json (briefing + phases)."""
+                  on_tick=None, max_retries: int = 1) -> dict:
+    """One LLM call -> validated plan_json (briefing + phases).
+
+    Streams internally so callers can surface live progress via on_tick(raw_buf);
+    max_tokens caps output size (speed) and max_retries defaults to 1 to bound
+    worst-case latency. on_tick receives the accumulated raw text so far.
+    """
     prompt = (PLAN_PROMPT
               .replace("{duration_min}", str(duration_min))
               .replace("{strict_mode}", "开启（卡壳不给台阶）" if strict_mode else "关闭（卡壳可给台阶）")
-              .replace("{resume}", json.dumps(structured_resume, ensure_ascii=False)[:12000])
+              .replace("{resume}", json.dumps(structured_resume, ensure_ascii=False)[:8000])
               .replace("{job_title}", job_title)
-              .replace("{jd}", jd_text[:8000])
+              .replace("{jd}", jd_text[:4000])
               .replace("{weak_points}", "、".join(weak_points) if weak_points else "（无）")
               .replace("{quiz_weak}", "、".join(quiz_weak or []) if quiz_weak else "（无）"))
     messages = [
@@ -196,11 +202,26 @@ def generate_plan(llm: LLMClient, structured_resume: dict, *, job_title: str,
                        if isinstance(p, dict) and p.get("name")]
     for _ in range(max_retries + 1):
         try:
-            return _validate_plan(_parse_json(llm.chat(messages, temperature=0.3)),
-                                  resume_projects)
+            buf = ""
+            for delta in llm.chat_stream(messages, temperature=0.3, max_tokens=2800):
+                buf += delta
+                if on_tick:
+                    on_tick(buf)
+            return _validate_plan(_parse_json(buf), resume_projects)
         except (LLMError, ValueError, KeyError, TypeError) as exc:
             last_err = exc
     raise ValueError(f"面试计划生成失败：{last_err}")
+
+
+def extract_plan_hints(buf: str) -> list[str]:
+    """Live progress while the plan streams: completed question topics and
+    dig-project names in order of appearance (the loading card reveals these)."""
+    hints: list[str] = []
+    for m in re.finditer(r'"(?:topic|project)"\s*:\s*"([^"]{2,40})"', buf):
+        value = m.group(1)
+        if value not in hints:
+            hints.append(value)
+    return hints
 
 
 def parse_eval_tag(content: str) -> tuple[str, dict | None]:

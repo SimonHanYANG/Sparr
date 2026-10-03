@@ -198,6 +198,84 @@ def application_plan(request, pk):
 
 
 @api_view(["POST"])
+def application_plan_stream(request, pk):
+    """SSE: plan generation with live progress — `stage`/`tick` events while the
+    LLM streams (tick carries the questions discovered so far), then `done` with
+    the validated plan. The loading UI renders ticks as a live reveal.
+    """
+    import queue as queue_mod
+    import threading
+
+    from django.db import connection
+
+    from core.sse import sse_event, sse_response
+
+    from .interview import extract_plan_hints
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    existing = InterviewPlan.objects.filter(application=session).first()
+    if existing and not request.data.get("force"):
+        def ready_iter():
+            yield sse_event("done", {"plan": existing.plan_json, "reused": True,
+                                    "model_name": existing.model_name})
+        return sse_response(ready_iter())
+
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    _, _, job_title, jd_text = _target_context(
+        {"job_id": session.job_id, "job_profile_id": session.job_profile_id},
+        request.user)
+    settings_json = session.settings_json or {}
+    q: queue_mod.Queue = queue_mod.Queue()
+
+    def worker():
+        try:
+            seen = [0]
+
+            def on_tick(buf):
+                hints = extract_plan_hints(buf)
+                if len(hints) > seen[0]:
+                    seen[0] = len(hints)
+                    q.put(("tick", {"items": hints}))
+
+            plan_json = generate_plan(
+                llm, session.resume_version.structured_json,
+                job_title=job_title, jd_text=jd_text,
+                weak_points=_weak_points(session), quiz_weak=[],
+                duration_min=settings_json.get("duration_min", 30),
+                strict_mode=settings_json.get("strict_mode", False),
+                on_tick=on_tick)
+            plan, _ = InterviewPlan.objects.update_or_create(
+                application=session,
+                defaults={"plan_json": plan_json,
+                          "model_name": f"{llm.provider}/{llm.model}"})
+            if session.status == ApplicationSession.Status.CREATED:
+                session.status = ApplicationSession.Status.IN_PROGRESS
+                session.started_at = session.started_at or timezone.now()
+                session.save(update_fields=["status", "started_at", "updated_at"])
+            q.put(("done", {"plan": plan.plan_json, "reused": False,
+                            "model_name": plan.model_name}))
+        except ValueError as exc:
+            q.put(("error", {"detail": str(exc)}))
+        finally:
+            connection.close()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def event_iter():
+        yield sse_event("stage", {"stage": "generating"})
+        while True:
+            kind, data = q.get()
+            yield sse_event(kind, data)
+            if kind in ("done", "error"):
+                return
+
+    return sse_response(event_iter())
+
+
+@api_view(["POST"])
 def application_turn(request, pk):
     """SSE：候选人发言（或 start/hint/skip/end）→ 流式返回面试官回复。
 

@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import {
-  generatePlan,
   getApplication,
+  planStream,
   postTurn,
   type InterviewTurn,
   type PlanJson,
@@ -75,6 +75,80 @@ function TurnBubble({ turn }: { turn: InterviewTurn }) {
   )
 }
 
+/** Plan generation loading card: orbiting light ring + live question reveal. */
+function PlanLoader({ sessionId, onDone }: { sessionId: number; onDone: () => void }) {
+  const { t } = useTranslation()
+  const [hints, setHints] = useState<string[]>([])
+  const [error, setError] = useState('')
+  const [elapsed, setElapsed] = useState(0)
+  const started = useRef(false)
+
+  const run = () => {
+    setError('')
+    setHints([])
+    setElapsed(0)
+    planStream(sessionId, (event, data) => {
+      if (event === 'tick') setHints(((data.items as string[]) ?? []).slice(0, 10))
+      else if (event === 'done') onDone()
+      else if (event === 'error') setError((data.detail as string) || t('interview.planError'))
+    }).catch(() => setError(t('interview.planError')))
+  }
+
+  useEffect(() => {
+    // auto-run once (guard against StrictMode double-mount)…
+    if (!started.current) {
+      started.current = true
+      run()
+    }
+    // …but the elapsed timer must survive remounts (cleanup would kill it)
+    const timer = window.setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div className="mt-6">
+      <div className="orbit-wrap">
+        <div className="rounded-2xl border border-line px-6 py-7">
+          <p className="text-[13.5px] font-medium text-ink">{t('interview.planBuilding')}</p>
+          <p className="mt-1 text-[11.5px] text-faint">
+            {t('interview.planElapsed', { sec: elapsed })}
+          </p>
+          {hints.length > 0 ? (
+            <ul className="mt-3 space-y-1">
+              {hints.map((h) => (
+                <li key={h} className="text-[11.5px] text-muted">
+                  · {t('interview.planLive')}
+                  {h}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            !error && (
+              <p className="mt-3 text-[11.5px] text-faint">{t('interview.planWarmup')}</p>
+            )
+          )}
+          {error ? (
+            <>
+              <p className="mt-3 text-[12px] text-red-600">{error}</p>
+              <button
+                onClick={run}
+                className="mt-3 rounded-full border border-line px-5 py-2 text-[12.5px] text-ink transition-colors hover:border-accent hover:text-accent"
+              >
+                {t('interview.planRetry')}
+              </button>
+            </>
+          ) : (
+            <div className="mt-4 h-0.5 w-full overflow-hidden rounded-full bg-surface">
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-accent/40" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** SSE interview room — transcript, streaming reply, controls, 断点续面. */
 export default function InterviewRoom() {
   const { t } = useTranslation()
@@ -96,11 +170,6 @@ export default function InterviewRoom() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [session?.turns?.length, streamingText])
-
-  const planMutation = useMutation({
-    mutationFn: () => generatePlan(sessionId),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['application', sessionId] }),
-  })
 
   const send = (body: { content?: string; action?: 'start' | 'answer' | 'hint' | 'skip' | 'end' }) => {
     if (busy) return
@@ -148,22 +217,14 @@ export default function InterviewRoom() {
         ← {t('interview.backToList')}
       </Link>
 
-      {/* plan gate */}
+      {/* plan gate — auto-generates with live progress (orbit loading card) */}
       {!session.has_plan && (
-        <div className="mt-6 rounded-2xl border border-line px-6 py-8 text-center">
-          <p className="text-[13.5px] text-ink">{t('interview.planMissing')}</p>
-          <p className="mt-1 text-[12px] text-muted">{t('interview.planHint')}</p>
-          <button
-            onClick={() => planMutation.mutate()}
-            disabled={planMutation.isPending}
-            className="mt-4 rounded-full bg-accent px-6 py-2.5 text-[13px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-          >
-            {planMutation.isPending ? t('interview.planGenerating') : t('interview.planGen')}
-          </button>
-          {planMutation.isError && (
-            <p className="mt-2 text-[12px] text-red-600">{t('interview.planError')}</p>
-          )}
-        </div>
+        <PlanLoader
+          sessionId={sessionId}
+          onDone={() =>
+            void queryClient.invalidateQueries({ queryKey: ['application', sessionId] })
+          }
+        />
       )}
 
       {/* plan preview before start / resume banner after */}

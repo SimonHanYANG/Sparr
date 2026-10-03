@@ -177,6 +177,14 @@ class InterviewEngineTests(SessionSetupMixin, APITestCase):
         self.assertIn("机械报幕", prohibition_hits("下面进入第二题。"))
         self.assertIn("一次抛多个问题", prohibition_hits("为什么？那然后呢？还有吗？"))
 
+    def test_extract_plan_hints(self):
+        from apps.sessions.interview import extract_plan_hints
+        hints = extract_plan_hints(
+            '{"briefing": {"projects": [{"project": "缓存网关"}]}, '
+            '"phases": [{"question_pool": [{"id": "q1", "topic": "Redis 一致性"}, '
+            '{"id": "q2", "topic": "TCP 三次握手"}]}]}')
+        self.assertEqual(hints, ["缓存网关", "Redis 一致性", "TCP 三次握手"])
+
     def test_generate_reply_strips_eval_marker(self):
         from apps.sessions.engine import generate_reply
         fake = MagicMock()
@@ -291,3 +299,35 @@ class InterviewTurnStreamTests(SessionSetupMixin, APITransactionTestCase):
         detail = self.client.get(f"/api/applications/{self.sid}").json()
         self.assertEqual(detail["status"], "finished")
         self.assertIsNotNone(detail["finished_at"])
+
+    def test_plan_stream_live_ticks_then_done(self):
+        sid2 = self.client.post("/api/applications", {"job_id": self.job.id},
+                                format="json").json()["id"]
+
+        def fake_generate(llm, structured, **kwargs):
+            on_tick = kwargs.get("on_tick")
+            if on_tick:
+                on_tick('{"phases": [{"question_pool": [{"id": "q1", "topic": "Redis 一致性"')
+                on_tick('{"phases": [{"question_pool": [{"id": "q1", "topic": "Redis 一致性"}, '
+                        '{"id": "q2", "topic": "TCP 三次握手"')
+            return FAKE_PLAN
+
+        with patch("apps.sessions.views.generate_plan", side_effect=fake_generate):
+            resp = self.client.post(f"/api/applications/{sid2}/plan/stream")
+        events = self._consume(resp)
+        kinds = [k for k, _ in events]
+        self.assertEqual(kinds[0], "stage")
+        self.assertIn("tick", kinds)
+        self.assertEqual(kinds[-1], "done")
+        ticks = [d for k, d in events if k == "tick"]
+        self.assertIn("Redis 一致性", ticks[0])  # live reveal grows over ticks
+        detail = self.client.get(f"/api/applications/{sid2}").json()
+        self.assertTrue(detail["has_plan"])
+
+    def test_plan_stream_reuses_existing_without_llm(self):
+        with patch("apps.sessions.views.generate_plan") as mock:
+            resp = self.client.post(f"/api/applications/{self.sid}/plan/stream")
+        events = self._consume(resp)
+        self.assertEqual([k for k, _ in events], ["done"])
+        self.assertIn('"reused": true', events[0][1])
+        self.assertEqual(mock.call_count, 0)

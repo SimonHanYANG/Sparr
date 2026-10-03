@@ -102,6 +102,12 @@ export const generatePlan = (id: number, force = false) =>
     { method: 'POST', body: JSON.stringify({ force }) },
   )
 
+/** SSE plan generation: stage/tick (live question reveal) then done. */
+export const planStream = (
+  id: number,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+) => apiStream(`/api/applications/${id}/plan/stream`, {}, onEvent)
+
 export const postTurn = (
   id: number,
   body: { content?: string; action?: 'start' | 'answer' | 'hint' | 'skip' | 'end' },

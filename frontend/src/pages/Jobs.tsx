@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { createApplication, generatePlan } from '../api/applications'
+import { createApplication } from '../api/applications'
 import {
   analyzeMatch,
   getSelfCheck,
@@ -49,13 +49,9 @@ function Workbench({ job }: { job: JobPosition }) {
   const [checks, setChecks] = useState<Record<string, string>>({})
   const [evalResult, setEvalResult] = useState<MatchEval | null>(null)
 
-  // 一键开练：建会话 → 生成面试计划 → 进面试间
+  // 一键开练：建会话（快）→ 立即进面试间，面试计划在房间里流式生成
   const startInterview = useMutation({
-    mutationFn: async () => {
-      const session = await createApplication({ job_id: job.id })
-      await generatePlan(session.id)
-      return session
-    },
+    mutationFn: () => createApplication({ job_id: job.id }),
     onSuccess: (session) => navigate(`/applications/${session.id}`),
   })
 

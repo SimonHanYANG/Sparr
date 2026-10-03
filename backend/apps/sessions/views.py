@@ -195,3 +195,139 @@ def application_plan(request, pk):
         session.save(update_fields=["status", "started_at", "updated_at"])
     return Response({"plan": plan.plan_json, "reused": False,
                     "model_name": plan.model_name})
+
+
+@api_view(["POST"])
+def application_turn(request, pk):
+    """SSE：候选人发言（或 start/hint/skip/end）→ 流式返回面试官回复。
+
+    隐藏评估 [EVAL] 标记行在服务端剥离，绝不泄露给候选人；回复完成后
+    逐轮落库 InterviewTurn 并更新 interview_state_json（断点续面的事实来源）。
+    """
+    import queue as queue_mod
+    import threading
+
+    from django.db import connection
+
+    from core.sse import sse_event, sse_response
+
+    from .engine import (ACTION_DIRECTIVES, apply_eval_to_state, build_messages,
+                         decide_action, generate_reply, prohibition_hits,
+                         summarize_history)
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    if session.status == ApplicationSession.Status.FINISHED:
+        return Response({"detail": "这场面试已结束"}, status=status.HTTP_400_BAD_REQUEST)
+    plan = InterviewPlan.objects.filter(application=session).first()
+    if not plan:
+        return Response({"detail": "请先生成面试计划"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    action = request.data.get("action") or (
+        "start" if session.last_turn_seq == 0 else "answer")
+    content = (request.data.get("content") or "").strip()
+    if action == "answer" and not content:
+        return Response({"detail": "回答内容不能为空"},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if action == "start" and session.last_turn_seq > 0:
+        return Response({"detail": "面试已开始"}, status=status.HTTP_400_BAD_REQUEST)
+
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    now = timezone.now()
+    state = dict(session.interview_state_json or {})
+    started = session.started_at or now
+    state["time_used_min"] = int((now - started).total_seconds() // 60)
+
+    # 本轮发言先行落库（断点续面：即使生成失败，候选人的原话也在）
+    seq = session.last_turn_seq + 1
+    labels = {"start": "面试开始", "hint": "（提示一下）",
+              "skip": "（换一题）", "end": "（结束面试）"}
+    candidate_turn = InterviewTurn.objects.create(
+        application=session, seq=seq,
+        role=(InterviewTurn.Role.CANDIDATE if action == "answer"
+              else InterviewTurn.Role.SYSTEM),
+        content=content if action == "answer" else labels.get(action, content),
+        meta={"action": action, **({"note": content} if action in ("hint", "skip", "end") else {})})
+
+    # 后端状态机的下一步动作（机制 2）——客户端指令优先，其余由上一轮隐藏评估决定
+    if action == "answer":
+        last_eval = (session.turns.filter(role=InterviewTurn.Role.INTERVIEWER)
+                     .order_by("-seq").values_list("eval_json", flat=True).first())
+        decided = decide_action(last_eval)
+        directive = ACTION_DIRECTIVES.get(decided, "")
+    else:
+        decided = {"start": "continue", "hint": "give_hint",
+                   "skip": "switch_topic", "end": "farewell"}[action]
+        directive = ACTION_DIRECTIVES[decided]
+
+    session.last_turn_seq = seq
+    session.interview_state_json = state
+    session.status = ApplicationSession.Status.IN_PROGRESS
+    session.started_at = started
+    session.save()
+
+    q: queue_mod.Queue = queue_mod.Queue()
+
+    def worker():
+        try:
+            messages = build_messages(session, plan.plan_json, content,
+                                      directive=directive, exclude_seq=seq)
+            result: dict = {}
+            chunks: list[str] = []
+            try:
+                for chunk in generate_reply(llm, messages, result):
+                    chunks.append(chunk)
+                    q.put(("delta", {"text": chunk}))
+            except Exception as exc:  # noqa: BLE001 — 流中断：partial 落库
+                InterviewTurn.objects.create(
+                    application_id=session.id, seq=seq + 1,
+                    role=InterviewTurn.Role.INTERVIEWER,
+                    content="".join(chunks), meta={"partial": True})
+                session.last_turn_seq = seq + 1
+                session.save(update_fields=["last_turn_seq", "updated_at"])
+                raise exc
+
+            visible = result.get("visible", "")
+            eval_data = result.get("eval")
+            next_action = decide_action(eval_data) if action == "answer" else decided
+            turn = InterviewTurn.objects.create(
+                application_id=session.id, seq=seq + 1,
+                role=InterviewTurn.Role.INTERVIEWER, content=visible,
+                eval_json=eval_data,
+                meta={"phase": state.get("phase"), "action": next_action,
+                      "prohibitions": prohibition_hits(visible)})
+            new_state = apply_eval_to_state(state, eval_data, seq=seq + 1,
+                                            plan_json=plan.plan_json,
+                                            visible=visible)
+            if action == "end":
+                session.status = ApplicationSession.Status.FINISHED
+                session.finished_at = timezone.now()
+            session.interview_state_json = new_state
+            session.last_turn_seq = seq + 1
+            session.save()
+            summarize_history(llm, session)  # 每 K 轮内部判定
+            q.put(("done", {"turn": _turn_payload(turn),
+                            "state": session.interview_state_json,
+                            "status": session.status,
+                            "last_turn_seq": session.last_turn_seq}))
+        except Exception as exc:  # noqa: BLE001
+            q.put(("error", {"detail": str(exc)}))
+        finally:
+            connection.close()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def event_iter():
+        yield sse_event("meta", {"session_id": session.id, "seq": seq,
+                                "action": action, "decided": decided,
+                                "model": f"{llm.provider}/{llm.model}"})
+        while True:
+            kind, data = q.get()
+            yield sse_event(kind, data)
+            if kind in ("done", "error"):
+                return
+
+    return sse_response(event_iter())

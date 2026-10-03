@@ -626,6 +626,7 @@ hotfix/*    线上修复 —— 从 main 切出，修完回 main（走同意）�
   - **岗位页 = 备考工作台**（用户交互重设计）— 2026-10-03 · `cbb34fe`：岗位卡显示「我的匹配度」；展开工作台 = 我 vs 岗位（一键 AI 评估/重评）+ 考点自查（掌握/模糊/不会 三态即时保存，**自评薄弱项喂给面试官**）+ 目标岗位星标（纳入主线）+ 一键「针对此岗位模拟应聘」；自定义 JD 收进「我的 JD」区消除割裂 — 52 测试全绿
 - [ ] **Phase 3 ★**：F3 面试问答（面试计划 / SSE 面试间 / 自适应追问 / 断点续面）— 过 §5.3③-A + §5.3③-B 两套验收 — 开工 2026-10-03 · `feature/phase-3-interview`
   - [x] 面试域模型 + 面试计划生成 — 2026-10-03：ApplicationSession/InterviewPlan/InterviewTurn（sparr_sessions 迁移 0001）；`generate_plan`（briefing 弹药卡 + phases 题池，每题强制 `why` 证据、targets 必须对上简历真实项目，校验直接丢弃违规项）；会话 API（创建/列表/详情/计划幂等生成 force 重生成）；考点自评薄弱项（模糊/不会）喂入计划 — 59 测试全绿
+  - [x] SSE 面试轮次引擎 + 隐藏评估状态机 — 2026-10-03：`POST /api/applications/{id}/turns` 流式面试官回复（[EVAL] 标记服务端剥离不外泄）；五层上下文组装（弹药卡/状态/滚动摘要/滑动窗口/动作指令）；后端状态机 `decide_action`（背书→深挖、破绽→追打、扎实→拔高、卡壳→给台阶、跑题→拉回）注入下轮 prompt；禁止清单正则初筛记入 turn.meta；破绽/亮点/未兑现线索/phase 推进落 interview_state_json；滚动摘要每 K 轮压缩；hint/skip/end 控制 + partial 落库断点续面 — 65 测试全绿
 - [ ] **Phase 4**：F3 基础笔试 + 代码笔试（组卷 / 判卷 / CodeMirror）
 - [ ] **Phase 5**：F4 综合总结报告 + 简历 diff 修改建议闭环
 - [ ] **Phase 6**：UI 打磨 + 多端实测 + 双语审校 + 两版部署落地（v1.0）

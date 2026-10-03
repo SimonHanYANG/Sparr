@@ -90,7 +90,8 @@ class TargetAndSelfCheckTests(APITestCase):
 
     def test_self_check_roundtrip_and_filtering(self):
         resp = self.client.put(f"/api/jobs/{self.job.id}/self-check",
-                               {"checks": {"TCP": "模糊", "HTTP": "掌握", "XSS": "乱写"}})
+                               {"checks": {"TCP": "模糊", "HTTP": "掌握", "XSS": "乱写"}},
+                               format="json")
         self.assertEqual(resp.json()["checks"], {"TCP": "模糊", "HTTP": "掌握"})
         resp = self.client.get(f"/api/jobs/{self.job.id}/self-check")
         self.assertEqual(resp.json()["checks"]["TCP"], "模糊")

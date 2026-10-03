@@ -254,3 +254,49 @@ class CandidateSelectionTests(TestCase):
         portrait = compute_portrait(sample_backend())  # 3 年 -> 社招
         picked = select_candidate_jobs(self._jobs(), portrait)
         self.assertTrue(all(j.level != "实习" for j in picked))
+
+
+class FlowStateTests(APITestCase):
+    """Main-line journey state machine (UX redesign)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        seed_jobs()
+
+    def setUp(self):
+        self.user = User.objects.create_user("f1", password="pw12345678")
+        self.client.force_authenticate(self.user)
+
+    def test_fresh_user_starts_at_resume_step(self):
+        body = self.client.get("/api/flow/state").json()
+        self.assertEqual(body["next"]["key"], "resume")
+        self.assertEqual([s["status"] for s in body["steps"]], ["active", "todo", "todo", "todo"])
+
+    def test_parsed_resume_advances_to_profile(self):
+        resume = Resume.objects.create(
+            user=self.user, title="r", source_path="x", source_filename="x.pdf",
+            parse_status="parsed")
+        version = ResumeVersion.objects.create(
+            resume=resume, version_no=1, structured_json=sample_backend())
+        resume.current_version = version
+        resume.save()
+        body = self.client.get("/api/flow/state").json()
+        self.assertEqual(body["steps"][0]["status"], "done")
+        self.assertEqual(body["next"]["key"], "profile")
+
+    def test_analysis_marks_profile_done(self):
+        from apps.jobs.models import JobPosition, MatchAnalysis
+
+        resume = Resume.objects.create(
+            user=self.user, title="r", source_path="x", source_filename="x.pdf",
+            parse_status="parsed")
+        version = ResumeVersion.objects.create(
+            resume=resume, version_no=1, structured_json=sample_backend())
+        resume.current_version = version
+        resume.save()
+        job = JobPosition.objects.first()
+        MatchAnalysis.objects.create(
+            user=self.user, resume_version=version, job=job, score=80)
+        body = self.client.get("/api/flow/state").json()
+        self.assertEqual(body["steps"][1]["status"], "done")
+        self.assertEqual(body["next"]["key"], "interview")

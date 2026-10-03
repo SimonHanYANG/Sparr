@@ -6,6 +6,7 @@ from apps.jobs.models import JobPosition
 from apps.resumes.models import Resume, ResumeVersion
 
 from .engine import compute_portrait, direction_scores, recommend
+from .flow import flow_state
 from .models import JobRecommendation, UserPortrait
 
 
@@ -85,3 +86,9 @@ def _payload(portrait: UserPortrait) -> dict:
             for r in portrait.recommendations.all()
         ],
     }
+
+
+@api_view(["GET"])
+def flow(request):
+    """Main-line journey state for the home workbench + next-step bars."""
+    return Response(flow_state(request.user))

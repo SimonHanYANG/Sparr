@@ -12,6 +12,7 @@ import {
   listJobProfiles,
   type MatchEval,
 } from '../api/profiling'
+import { NextStepBar } from '../components/JourneySection'
 import { useProfiling } from '../stores/profiling'
 
 function ScoreBadge({ score }: { score: number }) {
@@ -391,6 +392,8 @@ export default function Profiling() {
           </div>
         </section>
       )}
+
+      <NextStepBar currentKey="profile" />
     </div>
   )
 }

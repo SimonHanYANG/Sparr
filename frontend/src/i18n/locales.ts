@@ -1,7 +1,7 @@
 /** Bilingual copy — zh-CN / en (PLAN.md §7). All UI text lives here, no hardcoded strings. */
 export const zh = {
   nav: {
-    home: '首页',
+    home: '主线',
     resumes: '简历',
     profiling: '画像',
     jobs: '岗位',
@@ -83,6 +83,25 @@ export const zh = {
     delete: '删除',
     save: '保存',
     validate: '验证',
+  },
+  flow: {
+    nextLabel: '下一步',
+    go: '去完成',
+    allDone: '四步主线已全部完成！可以继续打磨你的简历，开启新一轮成长。',
+    again: '再来一轮 →',
+    steps: { resume: '简历', profile: '画像与岗位', interview: '模拟应聘', summary: '总结提升' },
+    actions: {
+      resume: '上传简历或手动填写',
+      profile: '生成画像与岗位匹配',
+      interview: '开始模拟应聘',
+      summary: '查看总结报告',
+    },
+    descs: {
+      resume: '解析并整理你的项目与能力',
+      profile: '看看你适合哪些岗位、差距在哪',
+      interview: '基础笔试 · 代码笔试 · 智能面试问答',
+      summary: '综合评估与简历优化，形成成长闭环',
+    },
   },
   profiling: {
     title: '能力画像与岗位匹配',
@@ -172,7 +191,7 @@ export const zh = {
 
 export const en: typeof zh = {
   nav: {
-    home: 'Home',
+    home: 'Journey',
     resumes: 'Resume',
     profiling: 'Profile',
     jobs: 'Jobs',
@@ -255,6 +274,25 @@ export const en: typeof zh = {
     delete: 'Delete',
     save: 'Save',
     validate: 'Validate',
+  },
+  flow: {
+    nextLabel: 'Next step',
+    go: 'Go',
+    allDone: 'All four steps completed! Update your resume and start a new round.',
+    again: 'Start a new round →',
+    steps: { resume: 'Resume', profile: 'Profile & Jobs', interview: 'Mock Interview', summary: 'Review' },
+    actions: {
+      resume: 'Upload or write your resume',
+      profile: 'Generate profile & job matches',
+      interview: 'Start mock interview',
+      summary: 'View your summary report',
+    },
+    descs: {
+      resume: 'Parse and organize your projects & skills',
+      profile: 'See which jobs fit you and where the gaps are',
+      interview: 'Quiz · coding test · smart interview',
+      summary: 'Full evaluation & resume fixes — close the growth loop',
+    },
   },
   profiling: {
     title: 'Profile & Job Match',

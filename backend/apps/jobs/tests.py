@@ -64,3 +64,40 @@ class JobProfileAndAnalyzeTests(APITestCase):
         self.assertEqual(body["score"], 72)
         self.assertEqual(body["gaps"][0]["requirement"], "分布式")
         self.assertEqual(body["model_name"], "mimo/mimo-v2.6-flash")
+
+
+class TargetAndSelfCheckTests(APITestCase):
+    def setUp(self):
+        from apps.jobs.management.commands.seed_jobs import JOBS
+        from apps.jobs.models import JobPosition
+
+        for spec in JOBS:
+            JobPosition.objects.update_or_create(
+                category=spec["category"], title=spec["title"], level=spec["level"],
+                defaults={k: spec[k] for k in ("description", "skill_requirements",
+                                              "affinity_tags", "knowledge_points",
+                                              "coding_topics", "interview_focus")})
+        self.user = User.objects.create_user("t1", password="pw12345678")
+        self.client.force_authenticate(self.user)
+        self.job = JobPosition.objects.first()
+
+    def test_target_toggle(self):
+        resp = self.client.post(f"/api/jobs/{self.job.id}/target")
+        self.assertEqual(resp.json()["is_target"], True)
+        self.assertEqual(self.client.get("/api/jobs/targets").json().__len__(), 1)
+        resp = self.client.delete(f"/api/jobs/{self.job.id}/target")
+        self.assertEqual(resp.json()["is_target"], False)
+
+    def test_self_check_roundtrip_and_filtering(self):
+        resp = self.client.put(f"/api/jobs/{self.job.id}/self-check",
+                               {"checks": {"TCP": "模糊", "HTTP": "掌握", "XSS": "乱写"}})
+        self.assertEqual(resp.json()["checks"], {"TCP": "模糊", "HTTP": "掌握"})
+        resp = self.client.get(f"/api/jobs/{self.job.id}/self-check")
+        self.assertEqual(resp.json()["checks"]["TCP"], "模糊")
+
+    def test_job_list_annotations(self):
+        self.client.post(f"/api/jobs/{self.job.id}/target")
+        jobs = self.client.get("/api/jobs").json()
+        mine = [j for j in jobs if j["id"] == self.job.id][0]
+        self.assertTrue(mine["is_target"])
+        self.assertIsNone(mine["my_score"])

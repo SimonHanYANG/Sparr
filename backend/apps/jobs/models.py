@@ -64,6 +64,39 @@ class JobProfile(models.Model):
         return self.title
 
 
+class JobTarget(models.Model):
+    """'My target jobs' — the user's shortlist, wired into the main line."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="job_targets")
+    job = models.ForeignKey(JobPosition, null=True, blank=True,
+                            on_delete=models.CASCADE, related_name="targets")
+    job_profile = models.ForeignKey(JobProfile, null=True, blank=True,
+                                    on_delete=models.CASCADE, related_name="targets")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class JobSelfCheck(models.Model):
+    """Per-knowledge-point self assessment (掌握/模糊/不会).
+
+    Stored per user+job and FEEDS the mock interviewer (Phase 3): points the
+    candidate marks 模糊/不会 become prime interview targets.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="self_checks")
+    job = models.ForeignKey(JobPosition, on_delete=models.CASCADE, related_name="self_checks")
+    checks_json = models.JSONField(default=dict,
+                                   help_text='{"知识点": "掌握|模糊|不会"}')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("user", "job")]
+
+
 class MatchAnalysis(models.Model):
     """LLM match evaluation of a resume version against one position.
 

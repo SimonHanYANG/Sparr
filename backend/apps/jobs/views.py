@@ -10,7 +10,17 @@ from apps.resumes.models import Resume, ResumeVersion
 from core.llm_adapter import LLMClient
 
 from .analysis import analyze_catalog, analyze_match
-from .models import JobPosition, JobProfile, MatchAnalysis
+from .models import JobPosition, JobProfile, JobSelfCheck, JobTarget, MatchAnalysis
+
+
+def _my_annotations(user, jobs):
+    """latest LLM match score + target flag per job (备考工作台 personalization)."""
+    latest = {}
+    for a in MatchAnalysis.objects.filter(user=user, job__isnull=False).order_by("-created_at"):
+        latest.setdefault(a.job_id, a.score)
+    target_ids = set(JobTarget.objects.filter(user=user, job__isnull=False)
+                     .values_list("job_id", flat=True))
+    return latest, target_ids
 
 
 @api_view(["GET"])
@@ -22,6 +32,8 @@ def job_list(request):
         qs = qs.filter(category=category)
     if level:
         qs = qs.filter(level=level)
+    jobs = list(qs)
+    latest, target_ids = _my_annotations(request.user, jobs)
     return Response([
         {
             "id": j.id, "category": j.category, "title": j.title, "level": j.level,
@@ -31,8 +43,49 @@ def job_list(request):
             "knowledge_points": j.knowledge_points,
             "coding_topics": j.coding_topics,
             "interview_focus": j.interview_focus,
+            "my_score": latest.get(j.id),
+            "is_target": j.id in target_ids,
         }
-        for j in qs
+        for j in jobs
+    ])
+
+
+@api_view(["POST", "DELETE"])
+def job_target(request, job_id):
+    job = get_object_or_404(JobPosition, pk=job_id, is_active=True)
+    if request.method == "POST":
+        JobTarget.objects.get_or_create(user=request.user, job=job)
+        return Response({"is_target": True})
+    JobTarget.objects.filter(user=request.user, job=job).delete()
+    return Response({"is_target": False})
+
+
+@api_view(["GET", "PUT"])
+def job_self_check(request, job_id):
+    job = get_object_or_404(JobPosition, pk=job_id, is_active=True)
+    check, _ = JobSelfCheck.objects.get_or_create(user=request.user, job=job)
+    if request.method == "PUT":
+        checks = request.data.get("checks") or {}
+        valid = {"掌握", "模糊", "不会"}
+        check.checks_json = {k: v for k, v in checks.items() if v in valid}
+        check.save(update_fields=["checks_json", "updated_at"])
+    return Response({"job_id": job_id, "checks": check.checks_json})
+
+
+@api_view(["GET"])
+def job_targets(request):
+    """My target jobs — the main-line shortlist (with latest scores)."""
+    targets = JobTarget.objects.filter(user=request.user, job__isnull=False)\
+        .select_related("job").order_by("-created_at")
+    latest, _ = _my_annotations(request.user, [])
+    return Response([
+        {
+            "id": t.id, "job_id": t.job_id, "title": t.job.title,
+            "category": t.job.category, "level": t.job.level,
+            "my_score": latest.get(t.job_id),
+            "created_at": t.created_at.isoformat(),
+        }
+        for t in targets
     ])
 
 

@@ -33,6 +33,8 @@ export interface JobPosition {
   title: string
   level: string
   description: string
+  my_score?: number | null
+  is_target?: boolean
   skill_requirements: { skill: string; weight: number; required: boolean }[]
   affinity_tags: string[]
   knowledge_points: string[]
@@ -85,6 +87,20 @@ export const createJobProfile = (title: string, jd_text: string) =>
   })
 
 export const listAnalyses = () => apiFetch<MatchEval[]>('/api/jobs/analyses')
+
+export const toggleJobTarget = (jobId: number, on: boolean) =>
+  apiFetch<{ is_target: boolean }>(`/api/jobs/${jobId}/target`, {
+    method: on ? 'POST' : 'DELETE',
+  })
+
+export const getSelfCheck = (jobId: number) =>
+  apiFetch<{ checks: Record<string, string> }>(`/api/jobs/${jobId}/self-check`)
+
+export const saveSelfCheck = (jobId: number, checks: Record<string, string>) =>
+  apiFetch<{ checks: Record<string, string> }>(`/api/jobs/${jobId}/self-check`, {
+    method: 'PUT',
+    body: JSON.stringify({ checks }),
+  })
 
 export const listJobs = (category?: string) =>
   apiFetch<JobPosition[]>(`/api/jobs${category ? `?category=${encodeURIComponent(category)}` : ''}`)

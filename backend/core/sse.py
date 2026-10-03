@@ -8,7 +8,7 @@ from django.http import StreamingHttpResponse
 
 
 def sse_event(event: str, data: dict | str, event_id: str | None = None) -> str:
-    payload = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
+    payload = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, default=str)
     parts = []
     if event_id:
         parts.append(f"id: {event_id}")

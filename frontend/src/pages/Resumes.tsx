@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
+import { NextStepBar } from '../components/JourneySection'
 import {
   createBlankResume,
   deleteResume,
@@ -185,6 +186,8 @@ export default function Resumes() {
           </div>
         )}
       </div>
+
+      <NextStepBar currentKey="resume" />
     </div>
   )
 }

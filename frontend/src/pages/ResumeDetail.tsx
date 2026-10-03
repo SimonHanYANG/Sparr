@@ -11,6 +11,7 @@ import {
   rollbackVersion,
   saveVersion,
 } from '../api/resumes'
+import { NextStepBar } from '../components/JourneySection'
 import ResumeEditor from '../components/resume/ResumeEditor'
 import ResumeView from '../components/resume/ResumeView'
 import type { StructuredResume } from '../types/resume'
@@ -196,6 +197,8 @@ export default function ResumeDetail() {
           </div>
         </>
       )}
+
+      <NextStepBar currentKey="resume" />
 
       {toast && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 rounded-full bg-ink px-5 py-2.5 text-[13px] text-white shadow-lg">

@@ -286,6 +286,23 @@ export default function InterviewRoom() {
           {shownTurns.map((turn) => (
             <TurnBubble key={turn.seq} turn={turn} />
           ))}
+          {/* 面试官思考中：等首个字期间的三点气泡，字一流出来就让位 */}
+          {busy && !streamingText && (
+            <div className="mb-4 flex justify-start">
+              <div className="max-w-[85%]">
+                <p className="mb-1 text-[10.5px] text-faint">{t('interview.interviewer')}</p>
+                <div
+                  className="flex items-center gap-1.5 rounded-2xl border border-line bg-white px-4 py-3.5"
+                  role="status"
+                  aria-label={t('interview.thinking')}
+                >
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted" />
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted" />
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted" />
+                </div>
+              </div>
+            </div>
+          )}
           {streamingText && (
             <div className="mb-4 flex justify-start">
               <div className="max-w-[85%]">

@@ -49,6 +49,7 @@ PLAN_PROMPT = """你是某大厂资深技术面试官。请为「候选人」定
 5. 各 phase 的 target_min 之和 ≈ {duration_min}；difficulty 取 1-5。
 6. 题目 id 全局唯一（q1、q2…）。
 7. 篇幅克制（直接影响生成速度，严格遵守）：每题 followups ≤2 条且每条 ≤20 字；why ≤30 字；attack_angles ≤4 条、metrics_to_verify ≤3 条、clues ≤2 条；question_pool 每环节 2-4 题即可；除 JSON 外不要输出任何多余文字。
+8. JSON 严格合法：属性分隔一律用半角逗号/冒号；字符串值内部禁止出现英文双引号（引用请用「」）；结尾必须补齐所有括号，不得截断。
 
 候选人结构化简历：
 {resume}
@@ -98,11 +99,58 @@ FOLLOWUP_SYSTEM = """你是这场模拟面试的面试官。候选人刚回答�
 
 
 def _parse_json(raw: str) -> dict:
+    """Tolerant JSON extraction — LLM output breaks in known ways (unescaped
+    quotes inside strings, full-width ，：, truncated tail). Try strict parse
+    first, then json-repair as a fallback; validation downstream is the real gate."""
+    from json_repair import repair_json
+
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip())
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
+    start = text.find("{")
+    if start == -1:
         raise ValueError("no JSON object in LLM output")
-    return json.loads(text[start:end + 1])
+
+    last_err: Exception | None = None
+    # candidate slices: string-aware balanced cut, naive rfind cut, whole tail
+    for candidate in (_balanced_object(text[start:]) or "",
+                      text[start:text.rfind("}") + 1],
+                      text[start:]):
+        if not candidate:
+            continue
+        for attempt in (candidate, repair_json(candidate)):
+            if not attempt:
+                continue
+            try:
+                data = json.loads(attempt)
+            except (json.JSONDecodeError, TypeError) as exc:
+                last_err = exc
+                continue
+            if isinstance(data, dict):
+                return data
+    raise ValueError(f"JSON 解析失败：{last_err}")
+
+
+def _balanced_object(text: str) -> str | None:
+    """Slice the first balanced {...} respecting string/escape context."""
+    depth = 0
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[: i + 1]
+    return None  # unbalanced (truncated) — caller falls back to repair
 
 
 def _validate_plan(data: dict, resume_projects: list[str] | None = None) -> dict:
@@ -177,12 +225,12 @@ def _validate_plan(data: dict, resume_projects: list[str] | None = None) -> dict
 def generate_plan(llm: LLMClient, structured_resume: dict, *, job_title: str,
                   jd_text: str, weak_points: list[str], quiz_weak: list[str] | None = None,
                   duration_min: int = 30, strict_mode: bool = False,
-                  on_tick=None, max_retries: int = 1) -> dict:
+                  on_tick=None, max_retries: int = 2) -> dict:
     """One LLM call -> validated plan_json (briefing + phases).
 
-    Streams internally so callers can surface live progress via on_tick(raw_buf);
-    max_tokens caps output size (speed) and max_retries defaults to 1 to bound
-    worst-case latency. on_tick receives the accumulated raw text so far.
+    Streams internally so callers can surface live progress via on_tick(raw_buf).
+    Parse is tolerant (json-repair fallback); on truncation the retry widens the
+    max_tokens budget instead of blindly re-running with the same cap.
     """
     prompt = (PLAN_PROMPT
               .replace("{duration_min}", str(duration_min))
@@ -200,17 +248,22 @@ def generate_plan(llm: LLMClient, structured_resume: dict, *, job_title: str,
     resume_projects = [str(p.get("name", "")) for p in
                        (structured_resume.get("projects") or [])
                        if isinstance(p, dict) and p.get("name")]
+    token_budget = 3400
     for _ in range(max_retries + 1):
+        buf = ""
         try:
-            buf = ""
-            for delta in llm.chat_stream(messages, temperature=0.3, max_tokens=2800):
+            for delta in llm.chat_stream(messages, temperature=0.3,
+                                         max_tokens=token_budget):
                 buf += delta
                 if on_tick:
                     on_tick(buf)
             return _validate_plan(_parse_json(buf), resume_projects)
         except (LLMError, ValueError, KeyError, TypeError) as exc:
             last_err = exc
-    raise ValueError(f"面试计划生成失败：{last_err}")
+            # 输出被截断（尾部没有闭合括号）→ 下一轮放宽输出预算重来
+            if buf.rstrip().endswith((",", ":", "{", "[")) or not buf.rstrip().endswith("}"):
+                token_budget = min(token_budget + 1200, 5000)
+    raise ValueError(f"面试计划生成失败（模型输出不完整，已自动重试）：{last_err}")
 
 
 def extract_plan_hints(buf: str) -> list[str]:

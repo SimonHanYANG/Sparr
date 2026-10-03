@@ -2,6 +2,7 @@
 
 防机械契约（§5.3③-A 机制 1）由 test_plan_validation_drops_questions_without_why 锁定。
 """
+import json
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
@@ -143,6 +144,41 @@ class PlanValidationTests(SessionSetupMixin, APITestCase):
         self.assertEqual([q["id"] for q in pool], ["q1"])  # q2 (why="") dropped
         targets = data["phases"][2]["targets"]
         self.assertEqual([t["project"] for t in targets], ["缓存网关"])
+
+    def test_parse_json_repairs_llm_breakage(self):
+        """用户现场故障类：字符串内未转义引号（Expecting ',' delimiter）/ 全角逗号 / 截断。"""
+        from apps.sessions.interview import _parse_json
+
+        data = _parse_json('{"phases": [{"name": "基础", "why": "JD 要求 "高并发" 经验"}]}')
+        self.assertIn("高并发", data["phases"][0]["why"])
+
+        data = _parse_json('{"phases": [{"name": "基础"}]，"briefing": {"persona": "p"}}')
+        self.assertEqual(data["briefing"]["persona"], "p")
+
+        data = _parse_json('{"phases": [{"name": "基础", "question_pool": [{"id": "q1", "topic": "TCP')
+        self.assertEqual(data["phases"][0]["name"], "基础")
+
+        data = _parse_json('```json\n{"phases": [{"name": "基础"}]}\n```')
+        self.assertEqual(data["phases"][0]["name"], "基础")
+
+    def test_generate_plan_bumps_budget_on_truncation(self):
+        """截断（尾部未闭合）时重试放宽 max_tokens，而不是同样预算再撞一次。"""
+        from apps.sessions.interview import generate_plan
+
+        fake = MagicMock()
+        budgets = []
+
+        def _stream(messages, **kwargs):
+            budgets.append(kwargs.get("max_tokens"))
+            if len(budgets) == 1:
+                return iter(['{"phases": [{"name": "基础"'])  # truncated mid-object
+            return iter([json.dumps(FAKE_PLAN, ensure_ascii=False)])
+
+        fake.chat_stream.side_effect = _stream
+        plan = generate_plan(fake, {"projects": [{"name": "缓存网关"}]},
+                             job_title="t", jd_text="jd", weak_points=[])
+        self.assertEqual(plan["phases"][0]["name"], "自我介绍")
+        self.assertGreater(budgets[1], budgets[0])
 
     def test_parse_eval_tag_splits_hidden_eval(self):
         visible, ev = parse_eval_tag(

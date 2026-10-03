@@ -12,6 +12,7 @@ dependencies = [
     "djangorestframework-simplejwt>=5.5.1",
     "gunicorn>=26.2.0",
     "httpx>=0.28.1",
+    "json-repair>=0.63.5",
     "redis>=8.1.0",
     "whitenoise>=6.12.0",
 ]

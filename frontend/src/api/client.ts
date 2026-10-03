@@ -99,3 +99,53 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   }
   return (await resp.json()) as T
 }
+
+/** SSE-over-fetch: invoke onEvent per server-sent event (event + JSON data). */
+export async function apiStream(
+  path: string,
+  body: unknown,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+): Promise<void> {
+  const doFetch = () =>
+    fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+      },
+      body: JSON.stringify(body ?? {}),
+    })
+  let resp = await doFetch()
+  if (resp.status === 401 && (await tryRefresh())) {
+    resp = await doFetch()
+  }
+  if (!resp.ok || !resp.body) {
+    throw new ApiError(resp.status, `HTTP ${resp.status}`)
+  }
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let sep
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const block = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+      let event = 'message'
+      const dataLines: string[] = []
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+      }
+      if (dataLines.length) {
+        try {
+          onEvent(event, JSON.parse(dataLines.join('\n')))
+        } catch {
+          /* ignore malformed frames */
+        }
+      }
+    }
+  }
+}

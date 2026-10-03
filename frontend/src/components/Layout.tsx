@@ -8,6 +8,7 @@ import LanguageSwitcher from './LanguageSwitcher'
 const navItems = [
   { to: '/', key: 'home', end: true },
   { to: '/resumes', key: 'resumes' },
+  { to: '/profiling', key: 'profiling' },
   { to: '/jobs', key: 'jobs' },
   { to: '/applications', key: 'applications' },
   { to: '/settings', key: 'settings' },

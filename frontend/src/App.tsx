@@ -3,7 +3,9 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import Auth from './pages/Auth'
 import Home from './pages/Home'
+import Jobs from './pages/Jobs'
 import Placeholder from './pages/Placeholder'
+import Profiling from './pages/Profiling'
 import ResumeDetail from './pages/ResumeDetail'
 import Resumes from './pages/Resumes'
 import Settings from './pages/Settings'
@@ -40,9 +42,14 @@ export default function App() {
           }
         />
         <Route
-          path="jobs"
-          element={<Placeholder titleKey="page.jobsTitle" descKey="page.jobsDesc" />}
+          path="profiling"
+          element={
+            <RequireAuth>
+              <Profiling />
+            </RequireAuth>
+          }
         />
+        <Route path="jobs" element={<Jobs />} />
         <Route
           path="applications"
           element={

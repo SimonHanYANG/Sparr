@@ -1,9 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-/** Hero: big type, whitespace, one primary CTA — DeepSeek/Apple minimal (PLAN.md §7). */
+import JourneySection, { useFlow } from '../components/JourneySection'
+import { useAuth } from '../stores/auth'
+
+/** Hero (intro for everyone) + journey workbench (logged-in) — PLAN UX redesign. */
 export default function Home() {
   const { t } = useTranslation()
+  const loggedIn = useAuth((s) => s.loggedIn)
+  const { data: flow } = useFlow()
 
   const features = [
     { title: t('home.feature1Title'), desc: t('home.feature1Desc') },
@@ -11,9 +16,17 @@ export default function Home() {
     { title: t('home.feature3Title'), desc: t('home.feature3Desc') },
   ]
 
+  // hero CTA reflects the user's ACTUAL next step (never a stale 'upload resume')
+  const next = loggedIn ? flow?.next : null
+  const primaryCta = next
+    ? { label: t(`flow.actions.${next.key}`), to: next.url }
+    : loggedIn
+      ? { label: t('flow.go'), to: '/resumes' }
+      : { label: t('home.ctaPrimary'), to: '/resumes' }
+
   return (
     <div className="pb-6">
-      <section className="mx-auto max-w-2xl pt-16 text-center sm:pt-24">
+      <section className="mx-auto max-w-2xl pt-16 text-center sm:pt-20">
         <p className="mb-4 text-[12px] font-medium uppercase tracking-[0.2em] text-accent">
           {t('home.tagline')}
         </p>
@@ -25,21 +38,30 @@ export default function Home() {
         </p>
         <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link
-            to="/resumes"
+            to={primaryCta.to}
             className="w-full rounded-full bg-accent px-7 py-3 text-[14.5px] font-medium text-white transition-colors hover:bg-accent-hover sm:w-auto"
           >
-            {t('home.ctaPrimary')}
+            {primaryCta.label}
           </Link>
-          <Link
-            to="/applications"
-            className="w-full rounded-full border border-line px-7 py-3 text-[14.5px] font-medium text-ink transition-colors hover:border-faint sm:w-auto"
-          >
-            {t('home.ctaSecondary')}
-          </Link>
+          {!loggedIn && (
+            <Link
+              to="/applications"
+              className="w-full rounded-full border border-line px-7 py-3 text-[14.5px] font-medium text-ink transition-colors hover:border-faint sm:w-auto"
+            >
+              {t('home.ctaSecondary')}
+            </Link>
+          )}
         </div>
       </section>
 
-      <section className="mx-auto mt-24 grid max-w-4xl gap-10 sm:grid-cols-3">
+      {/* journey workbench — logged-in users get the main-line flow */}
+      {loggedIn && (
+        <div className="mx-auto max-w-3xl">
+          <JourneySection />
+        </div>
+      )}
+
+      <section className="mx-auto mt-20 grid max-w-4xl gap-10 sm:grid-cols-3">
         {features.map((f, i) => (
           <div key={i} className="text-center sm:text-left">
             <div className="mx-auto mb-3 h-px w-8 bg-accent sm:mx-0" />

@@ -11,4 +11,5 @@ urlpatterns = [
     path("api/", include("apps.resumes.urls")),
     path("api/", include("apps.jobs.urls")),
     path("api/", include("apps.profiling.urls")),
+    path("api/", include("apps.sessions.urls")),
 ]

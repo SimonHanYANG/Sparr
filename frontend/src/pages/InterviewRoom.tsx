@@ -159,6 +159,8 @@ export default function InterviewRoom() {
   const [streamingText, setStreamingText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // 乐观上屏：发言立刻渲染，不等服务端落库回包（seq 与服务端对齐以便去重）
+  const [pending, setPending] = useState<InterviewTurn[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: session } = useQuery({
@@ -176,20 +178,46 @@ export default function InterviewRoom() {
     setBusy(true)
     setError('')
     setStreamingText('')
-    if (body.action === 'answer') setInput('')
+    const action = body.action ?? 'answer'
+    const seq = (session?.last_turn_seq ?? 0) + 1
+    const labels: Record<string, string> = {
+      start: t('interview.sysStart'),
+      hint: `（${t('interview.hint')}）`,
+      skip: `（${t('interview.skip')}）`,
+      end: `（${t('interview.end')}）`,
+    }
+    setPending((prev) => [
+      ...prev,
+      {
+        seq,
+        role: action === 'answer' ? 'candidate' : 'system',
+        content: action === 'answer' ? (body.content ?? '') : labels[action],
+        meta: { action },
+        has_eval: false,
+        created_at: new Date().toISOString(),
+      },
+    ])
+    if (action === 'answer') setInput('')
+    const refresh = () =>
+      queryClient
+        .invalidateQueries({ queryKey: ['application', sessionId] })
+        .finally(() => setPending([]))
     postTurn(sessionId, body, (event, data) => {
       if (event === 'delta') {
         setStreamingText((prev) => prev + (data.text as string))
       } else if (event === 'done') {
         setStreamingText('')
-        void queryClient.invalidateQueries({ queryKey: ['application', sessionId] })
+        void refresh()
       } else if (event === 'error') {
         setError((data.detail as string) || t('interview.turnError'))
         setStreamingText('')
-        void queryClient.invalidateQueries({ queryKey: ['application', sessionId] })
+        void refresh()
       }
     })
-      .catch(() => setError(t('interview.turnError')))
+      .catch(() => {
+        setError(t('interview.turnError'))
+        void refresh()
+      })
       .finally(() => setBusy(false))
   }
 
@@ -197,7 +225,12 @@ export default function InterviewRoom() {
 
   const turns = session.turns ?? []
   const finished = session.status === 'finished'
-  const started = turns.length > 0
+  // 服务端转录 + 尚未落库回包的乐观消息（按 seq 去重合并；普通计算，避开条件早退后的 hooks 问题）
+  const knownSeqs = new Set(turns.map((t) => t.seq))
+  const shownTurns = [...turns, ...pending.filter((p) => !knownSeqs.has(p.seq))].sort(
+    (a, b) => a.seq - b.seq,
+  )
+  const started = shownTurns.length > 0
 
   return (
     <div className="mx-auto max-w-2xl pt-6">
@@ -250,7 +283,7 @@ export default function InterviewRoom() {
       {/* transcript */}
       {started && (
         <div className="mt-5">
-          {turns.map((turn) => (
+          {shownTurns.map((turn) => (
             <TurnBubble key={turn.seq} turn={turn} />
           ))}
           {streamingText && (

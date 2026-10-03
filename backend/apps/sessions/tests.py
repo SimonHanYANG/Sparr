@@ -341,16 +341,24 @@ class InterviewTurnStreamTests(SessionSetupMixin, APITransactionTestCase):
         self.assertEqual(len(detail["turns"]), 4)
 
     def test_end_action_finishes_session(self):
+        """结束即结束：直接收束，不再生成面试官告别语（用户要求）。"""
         fake = self._fake_llm()
         with patch("apps.sessions.views._llm_or_400",
                    return_value=(fake, "mimo-v2.6-flash", None)):
             self._consume(self.client.post(f"/api/applications/{self.sid}/turns",
                                            {"action": "start"}))
+            calls_before_end = fake.chat_stream.call_count
             self._consume(self.client.post(f"/api/applications/{self.sid}/turns",
                                            {"action": "end"}))
+        # 结束动作零 LLM 调用、零面试官输出
+        self.assertEqual(fake.chat_stream.call_count, calls_before_end)
         detail = self.client.get(f"/api/applications/{self.sid}").json()
         self.assertEqual(detail["status"], "finished")
         self.assertIsNotNone(detail["finished_at"])
+        self.assertEqual(detail["turns"][-1]["role"], "system")  # 收尾是系统记录
+        self.assertEqual(detail["turns"][-1]["meta"]["action"], "end")
+        interviewer_turns = [t for t in detail["turns"] if t["role"] == "interviewer"]
+        self.assertEqual(len(interviewer_turns), 1)  # 只有开场，没有告别
 
     def test_plan_stream_live_ticks_then_done(self):
         sid2 = self.client.post("/api/applications", {"job_id": self.job.id},

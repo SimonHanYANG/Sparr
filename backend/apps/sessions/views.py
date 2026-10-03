@@ -310,6 +310,28 @@ def application_turn(request, pk):
     if action == "start" and session.last_turn_seq > 0:
         return Response({"detail": "面试已开始"}, status=status.HTTP_400_BAD_REQUEST)
 
+    if action == "end":
+        # 结束即结束（用户要求）：直接收束会话，不再生成面试官告别语
+        seq = session.last_turn_seq + 1
+        InterviewTurn.objects.create(
+            application=session, seq=seq, role=InterviewTurn.Role.SYSTEM,
+            content="（结束面试）", meta={"action": "end"})
+        session.last_turn_seq = seq
+        session.status = ApplicationSession.Status.FINISHED
+        session.finished_at = timezone.now()
+        session.save()
+
+        def end_iter():
+            yield sse_event("meta", {"session_id": session.id, "seq": seq,
+                                    "action": "end", "decided": "end",
+                                    "model": session.model_name})
+            yield sse_event("done", {"turn": None,
+                                    "state": session.interview_state_json,
+                                    "status": session.status,
+                                    "last_turn_seq": session.last_turn_seq})
+
+        return sse_response(end_iter())
+
     llm, model, err = _llm_or_400(request)
     if err:
         return err
@@ -321,8 +343,7 @@ def application_turn(request, pk):
 
     # 本轮发言先行落库（断点续面：即使生成失败，候选人的原话也在）
     seq = session.last_turn_seq + 1
-    labels = {"start": "面试开始", "hint": "（提示一下）",
-              "skip": "（换一题）", "end": "（结束面试）"}
+    labels = {"start": "面试开始", "hint": "（提示一下）", "skip": "（换一题）"}
     candidate_turn = InterviewTurn.objects.create(
         application=session, seq=seq,
         role=(InterviewTurn.Role.CANDIDATE if action == "answer"
@@ -338,7 +359,7 @@ def application_turn(request, pk):
         directive = ACTION_DIRECTIVES.get(decided, "")
     else:
         decided = {"start": "continue", "hint": "give_hint",
-                   "skip": "switch_topic", "end": "farewell"}[action]
+                   "skip": "switch_topic"}[action]
         directive = ACTION_DIRECTIVES[decided]
 
     session.last_turn_seq = seq

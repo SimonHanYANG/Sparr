@@ -231,30 +231,6 @@ def generate_reply(llm: LLMClient, messages: list[ChatMessage], result: dict):
         yield tail
     result["visible"] = visible
     result["eval"] = eval_data
-    result = {}
-    buf = ""
-    emitted = 0
-    for delta in llm.chat_stream(messages, temperature=0.7):
-        buf += delta
-        idx = buf.find("[EVAL")
-        if idx != -1:
-            safe_end = idx
-        else:
-            safe_end = len(buf)
-            for k in range(1, 6):
-                if buf.endswith("[EVAL"[:k]):
-                    safe_end = len(buf) - k
-                    break
-        if safe_end > emitted:
-            chunk = buf[emitted:safe_end]
-            emitted = safe_end
-            yield chunk
-    visible, eval_data = parse_eval_tag(buf)
-    tail = visible[emitted:] if len(visible) > emitted else ""
-    if tail:
-        yield tail
-    result["visible"] = visible
-    result["eval"] = eval_data
 
 
 def summarize_history(llm: LLMClient, session) -> str:

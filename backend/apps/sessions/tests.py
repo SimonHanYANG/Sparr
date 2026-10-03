@@ -237,6 +237,22 @@ class InterviewEngineTests(SessionSetupMixin, APITestCase):
         self.assertEqual(result["eval"]["next_action"], "follow_up")
         self.assertEqual(result["visible"], visible.strip())
 
+    def test_generate_reply_single_stream_no_ghost_text(self):
+        """回归：函数体曾整体重复——每轮两次 LLM 流，第二段像'思考'一样多出来、
+        落库又消失。锁死：chat_stream 只调一次，流出内容与落库内容一致。"""
+        from apps.sessions.engine import generate_reply
+        fake = MagicMock()
+        fake.chat_stream.return_value = iter([
+            '回答正文。', '[EVAL]{"understand": 3, "depth": 3, "rote": false, '
+            '"off_topic": false, "flaw": "", "highlight": "", "next_action": "continue", '
+            '"comment": ""}[/EVAL]',
+        ])
+        result = {}
+        streamed = "".join(generate_reply(fake, [], result))
+        self.assertEqual(fake.chat_stream.call_count, 1)
+        self.assertEqual(streamed.strip(), result["visible"].strip())
+        self.assertNotIn("EVAL", streamed)
+
 class InterviewTurnStreamTests(SessionSetupMixin, APITransactionTestCase):
     """SSE 轮次流测试——worker 线程写库需要真实事务（非嵌套），故用
     APITransactionTestCase；生产环境 sqlite 自动提交/postgres 无此问题。"""

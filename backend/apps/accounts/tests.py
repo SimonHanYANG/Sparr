@@ -98,3 +98,33 @@ class CredentialTests(APITestCase):
         resp = self.client.get("/api/auth/credentials")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertNotIn("newkey9999", str(resp.json()))
+
+
+class ValidateKeyTests(APITestCase):
+    """验证探活：思考模型小预算导致空正文 ≠ key 无效（用户现场问题回归）。"""
+
+    def test_validate_key_tolerates_thinking_model_empty_content(self):
+        from unittest.mock import MagicMock, patch
+
+        from core.llm_adapter import LLMClient, LLMError
+
+        client = LLMClient(provider="mimo", api_key="tp-test", model="mimo-v2.6-flash",
+                           base_url="https://token-plan-cn.xiaomimimo.com/v1")
+
+        # 思考模型把预算吞掉 → 空正文 → 仍应判定可用
+        with patch.object(LLMClient, "chat",
+                          side_effect=LLMError("LLM mimo returned empty content (finish_reason=length)")):
+            ok, _ = client.validate_key()
+        self.assertTrue(ok)
+
+        # 真正的认证/网络错误 → 失败
+        with patch.object(LLMClient, "chat",
+                          side_effect=LLMError("LLM mimo HTTP 401: unauthorized")):
+            ok, msg = client.validate_key()
+        self.assertFalse(ok)
+        self.assertIn("401", msg)
+
+        # 正常返回 → 可用
+        with patch.object(LLMClient, "chat", return_value="ok"):
+            ok, _ = client.validate_key()
+        self.assertTrue(ok)

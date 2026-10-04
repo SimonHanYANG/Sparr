@@ -596,3 +596,80 @@ class QuizTests(SessionSetupMixin, APITestCase):
             *[{**FAKE_QUIZ["questions"][0], "id": f"ok{i}"} for i in range(3, 7)],
         ]})
         self.assertEqual(len(questions), 5)  # 两道坏题被丢弃
+
+
+FAKE_CODING = {"questions": [
+    {"id": "c1", "stem": "实现一个固定窗口限流器", "function_signature": "def allow(key: str) -> bool",
+     "examples": [{"input": "qps=1", "output": "True", "note": ""}],
+     "constraints": "1<=qps<=1000", "language_hint": "python", "score_full": 50,
+     "reference_solution": "def allow(key): ..."},
+    {"id": "c2", "stem": "实现滑动窗口 QPS 统计", "function_signature": "def stat(events: list) -> int",
+     "examples": [{"input": "[1,2]", "output": "3", "note": ""}],
+     "constraints": "n<=1e5", "language_hint": "python", "score_full": 50,
+     "reference_solution": "def stat(events): ..."},
+]}
+
+FAKE_JUDGE = {"correctness": {"score": 8, "comment": "思路正确"},
+              "edge_cases": {"score": 6, "comment": "边界漏了空输入"},
+              "complexity": {"score": 7, "comment": "O(n) 合理"},
+              "style": {"score": 8, "comment": "命名清晰"},
+              "summary": "整体不错", "improved_solution": "def allow(key): ..."}
+
+
+class CodingTests(SessionSetupMixin, APITestCase):
+    """代码笔试：出题/AI 四维评审（PLAN.md §5.3②）。"""
+
+    def setUp(self):
+        self._setup()
+        self.sid = self.client.post("/api/applications", {"job_id": self.job.id},
+                                    format="json").json()["id"]
+
+    def test_coding_generation_hides_reference_and_idempotent(self):
+        with patch("apps.sessions.coding.generate_coding",
+                   return_value=list(FAKE_CODING["questions"])):
+            resp = self.client.post(f"/api/applications/{self.sid}/coding")
+        body = resp.json()
+        self.assertFalse(body["reused"])
+        self.assertEqual(len(body["questions"]), 2)
+        self.assertNotIn("reference_solution", body["questions"][0])  # 防作弊
+
+        with patch("apps.sessions.coding.generate_coding") as mock2:
+            resp = self.client.post(f"/api/applications/{self.sid}/coding")
+        self.assertTrue(resp.json()["reused"])
+        self.assertEqual(mock2.call_count, 0)
+
+    def test_coding_submit_review_and_unanswered(self):
+        with patch("apps.sessions.coding.generate_coding",
+                   return_value=list(FAKE_CODING["questions"])):
+            self.client.post(f"/api/applications/{self.sid}/coding")
+        questions = self.client.get(f"/api/applications/{self.sid}/coding").json()["questions"]
+        qids = {q["seq"]: q["id"] for q in questions}
+
+        with patch("apps.sessions.coding.review_code",
+                   return_value=(32.5, dict(FAKE_JUDGE))) as mock:
+            resp = self.client.post(
+                f"/api/applications/{self.sid}/coding/submit",
+                {"answers": [
+                    {"question_id": qids[1], "code": "def allow(key): return True",
+                     "language": "python"},
+                    {"question_id": qids[2], "code": ""},  # 未作答
+                ]}, format="json")
+        body = resp.json()
+        self.assertEqual(body["total_full"], 100)
+        self.assertEqual(body["total_score"], 32.5)
+        self.assertEqual(mock.call_count, 1)  # 未作答的不送评审
+        answered = body["questions"][0]["my_answer"]
+        self.assertEqual(answered["judge"]["correctness"]["score"], 8)
+        self.assertIn("improved_solution", answered["judge"])
+        self.assertEqual(body["questions"][1]["my_answer"]["score"], 0)
+
+    def test_coding_review_validation_clamps(self):
+        from apps.sessions.coding import _validate_review
+
+        judge = _validate_review({"correctness": {"score": 15},
+                                  "edge_cases": {"score": "x"},
+                                  "complexity": {"score": 7, "comment": "ok"}})
+        self.assertEqual(judge["correctness"]["score"], 10)
+        self.assertEqual(judge["edge_cases"]["score"], 0)
+        self.assertEqual(judge["complexity"]["score"], 7)
+        self.assertEqual(judge["style"]["score"], 0)

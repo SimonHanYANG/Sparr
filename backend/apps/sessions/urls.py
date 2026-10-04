@@ -16,4 +16,7 @@ urlpatterns = [
     path("applications/<int:pk>/quiz", views.application_quiz, name="application-quiz"),
     path("applications/<int:pk>/quiz/submit", views.application_quiz_submit,
          name="application-quiz-submit"),
+    path("applications/<int:pk>/coding", views.application_coding, name="application-coding"),
+    path("applications/<int:pk>/coding/submit", views.application_coding_submit,
+         name="application-coding-submit"),
 ]

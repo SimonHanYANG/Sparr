@@ -163,3 +163,37 @@ class ExamAnswer(models.Model):
 
     class Meta:
         ordering = ["question__seq"]
+
+
+class CodingQuestion(models.Model):
+    """代码笔试题（PLAN.md §5.3②）——场景化、难度递进，LLM 评审不做在线判题。"""
+
+    application = models.ForeignKey(ApplicationSession, on_delete=models.CASCADE,
+                                    related_name="coding_questions")
+    seq = models.PositiveIntegerField()
+    stem = models.TextField()
+    function_signature = models.TextField(blank=True, default="")
+    examples = models.JSONField(default=list)   # [{"input", "output", "note"}]
+    constraints = models.TextField(blank=True, default="")
+    language_hint = models.CharField(max_length=20, blank=True, default="python")
+    score_full = models.PositiveSmallIntegerField(default=50)
+    reference_solution = models.TextField(blank=True, default="")  # 不下发前端
+
+    class Meta:
+        ordering = ["seq"]
+        unique_together = [("application", "seq")]
+
+
+class CodingAnswer(models.Model):
+    """代码作答与 AI 评审结果（四维分项 + 批注 + 改进版参考代码）。"""
+
+    question = models.ForeignKey(CodingQuestion, on_delete=models.CASCADE,
+                                 related_name="answers")
+    code = models.TextField()
+    language = models.CharField(max_length=20, default="python")
+    score = models.FloatField(default=0)
+    judge_json = models.JSONField(default=dict)  # {correctness, edge_cases, complexity, style, summary, improved_solution}
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["question__seq"]

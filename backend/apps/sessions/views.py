@@ -17,7 +17,8 @@ from apps.resumes.models import Resume
 from core.llm_adapter import LLMClient
 
 from .interview import generate_plan
-from .models import ApplicationSession, ExamAnswer, ExamQuestion, InterviewPlan, InterviewTurn
+from .models import (ApplicationSession, CodingAnswer, CodingQuestion, ExamAnswer,
+                     ExamQuestion, InterviewPlan, InterviewTurn)
 
 # 进行中轮次的取消信号（打断）：(user_id, session_id) -> Event
 _turn_cancels: dict = {}
@@ -622,3 +623,106 @@ def application_quiz_submit(request, pk):
     total = sum(r["my_answer"]["score"] for r in results)
     return Response({"questions": results, "total_full": total_full,
                      "total_score": total, "quiz_weak": weak})
+
+
+def _coding_payload(q: CodingQuestion, with_answers: bool = False) -> dict:
+    """代码题（参考解不下发——改进版参考代码由评审给出）。"""
+    payload = {"id": q.id, "seq": q.seq, "stem": q.stem,
+               "function_signature": q.function_signature, "examples": q.examples,
+               "constraints": q.constraints, "language_hint": q.language_hint,
+               "score_full": q.score_full}
+    if with_answers:
+        answer = q.answers.order_by("-submitted_at").first()
+        payload["my_answer"] = ({"code": answer.code, "language": answer.language,
+                                 "score": answer.score, "judge": answer.judge_json}
+                                if answer else None)
+    return payload
+
+
+@api_view(["GET", "POST"])
+def application_coding(request, pk):
+    """代码笔试：POST 生成题目（幂等，force 重出）/ GET 取题。"""
+    from .coding import generate_coding
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    existing = session.coding_questions.all()
+
+    if request.method == "GET":
+        answered = existing.filter(answers__isnull=False).exists()
+        total_full = sum(q.score_full for q in existing)
+        got = sum(q.answers.order_by("-submitted_at").first().score or 0
+                  for q in existing if q.answers.exists())
+        return Response({"questions": [_coding_payload(q, with_answers=True) for q in existing],
+                         "total_full": total_full, "total_score": got if answered else None})
+
+    if existing and not request.data.get("force"):
+        return Response({"questions": [_coding_payload(q) for q in existing], "reused": True})
+    if existing:
+        existing.delete()
+
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    skills = [s.get("name", "") for s in
+              (session.resume_version.structured_json or {}).get("skills", [])
+              if isinstance(s, dict) and s.get("name")]
+    topics = list(session.job.coding_topics) if session.job_id else []
+    try:
+        questions = generate_coding(llm, job_title=session.job_title,
+                                    coding_topics=topics, resume_skills=skills)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    for i, q in enumerate(questions, 1):
+        CodingQuestion.objects.create(
+            application=session, seq=i, stem=q["stem"],
+            function_signature=q["function_signature"], examples=q["examples"],
+            constraints=q["constraints"], language_hint=q["language_hint"],
+            score_full=q["score_full"], reference_solution=q["reference_solution"])
+    return Response({"questions": [_coding_payload(q) for q in session.coding_questions.all()],
+                     "reused": False})
+
+
+@api_view(["POST"])
+def application_coding_submit(request, pk):
+    """提交代码 → LLM 四维评审（AI 评审，不做在线判题）。"""
+    from .coding import review_code
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    questions = list(session.coding_questions.all())
+    if not questions:
+        return Response({"detail": "还没有代码题，请先生成"},
+                        status=status.HTTP_400_BAD_REQUEST)
+    answers_in = {int(a["question_id"]): a
+                  for a in request.data.get("answers", [])
+                  if str(a.get("question_id", "")).isdigit()}
+
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    results = []
+    for q in questions:
+        q.answers.all().delete()  # 重考覆盖
+        given = answers_in.get(q.id) or {}
+        code = str(given.get("code", ""))
+        language = str(given.get("language", q.language_hint or "python"))[:20]
+        if not code.strip():
+            score, judge = 0.0, {"reason": "未作答"}
+        else:
+            score, judge = review_code(llm, {"stem": q.stem,
+                                             "function_signature": q.function_signature,
+                                             "examples": q.examples,
+                                             "constraints": q.constraints,
+                                             "score_full": q.score_full},
+                                       code, language)
+        CodingAnswer.objects.create(question=q, code=code, language=language,
+                                    score=score, judge_json=judge)
+        results.append({**_coding_payload(q, with_answers=True),
+                        "my_answer": {"code": code, "language": language,
+                                      "score": score, "judge": judge}})
+
+    total_full = sum(q.score_full for q in questions)
+    total = sum(r["my_answer"]["score"] for r in results)
+    return Response({"questions": results, "total_full": total_full, "total_score": total})

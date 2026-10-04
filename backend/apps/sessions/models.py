@@ -121,3 +121,45 @@ class InterviewTurn(models.Model):
 
     def __str__(self) -> str:
         return f"turn#{self.seq}({self.role})"
+
+
+class ExamQuestion(models.Model):
+    """基础笔试题（PLAN.md §5.3①）——单选/多选/简答，同一岗位定义驱动出题。
+
+    参考答案与评分要点只留在服务端，试卷 API 不下发（防作弊）。
+    """
+
+    class QType(models.TextChoices):
+        SINGLE = "single", "single"
+        MULTI = "multi", "multi"
+        SHORT = "short_answer", "short_answer"
+
+    application = models.ForeignKey(ApplicationSession, on_delete=models.CASCADE,
+                                    related_name="exam_questions")
+    seq = models.PositiveIntegerField()
+    qtype = models.CharField(max_length=16, choices=QType.choices)
+    difficulty = models.PositiveSmallIntegerField(default=3)
+    stem = models.TextField()
+    options = models.JSONField(default=list)          # ["A文本", ...]
+    reference_answer = models.JSONField(default=list) # 选择题: 选项序号数组; 简答: ["参考表述"]
+    scoring_points = models.JSONField(default=list)   # 简答评分要点
+    knowledge_tag = models.CharField(max_length=100, blank=True, default="")
+    score_full = models.PositiveSmallIntegerField(default=10)
+
+    class Meta:
+        ordering = ["seq"]
+        unique_together = [("application", "seq")]
+
+
+class ExamAnswer(models.Model):
+    """笔试作答与判卷结果。content: 选择题=选项序号数组；简答=文本。"""
+
+    question = models.ForeignKey(ExamQuestion, on_delete=models.CASCADE,
+                                 related_name="answers")
+    content = models.JSONField(default=dict)
+    score = models.FloatField(default=0)
+    judge_json = models.JSONField(default=dict)  # {"reason": ...}
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["question__seq"]

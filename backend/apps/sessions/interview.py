@@ -248,7 +248,7 @@ def generate_plan(llm: LLMClient, structured_resume: dict, *, job_title: str,
     resume_projects = [str(p.get("name", "")) for p in
                        (structured_resume.get("projects") or [])
                        if isinstance(p, dict) and p.get("name")]
-    token_budget = 3400
+    token_budget = 7000
     for _ in range(max_retries + 1):
         buf = ""
         try:
@@ -262,7 +262,7 @@ def generate_plan(llm: LLMClient, structured_resume: dict, *, job_title: str,
             last_err = exc
             # 输出被截断（尾部没有闭合括号）→ 下一轮放宽输出预算重来
             if buf.rstrip().endswith((",", ":", "{", "[")) or not buf.rstrip().endswith("}"):
-                token_budget = min(token_budget + 1200, 5000)
+                token_budget = min(token_budget + 2000, 10000)
     raise ValueError(f"面试计划生成失败（模型输出不完整，已自动重试）：{last_err}")
 
 
@@ -317,7 +317,7 @@ def generate_review(llm: LLMClient, job_title: str, transcript: str,
     last_err = None
     for _ in range(max_retries + 1):
         try:
-            data = _parse_json(llm.chat(messages, temperature=0.2, max_tokens=2400))
+            data = _parse_json(llm.chat(messages, temperature=0.2, max_tokens=5000))
             return _validate_review(data)
         except (LLMError, ValueError, KeyError, TypeError) as exc:
             last_err = exc

@@ -503,3 +503,96 @@ class ReviewTests(SessionSetupMixin, APITestCase):
         self.assertEqual(data["dimensions"]["项目深度"], 0)
         self.assertEqual(data["hire_impression"], "待定")
         self.assertEqual(len(data["per_question"]), 1)
+
+
+FAKE_QUIZ = {"questions": [
+    {"id": "q1", "type": "single", "difficulty": 1, "stem": "HTTP 默认端口是？",
+     "options": ["80", "443", "22", "3306"], "reference_answer": [0],
+     "scoring_points": [], "knowledge_tag": "HTTP", "score_full": 10},
+    {"id": "q2", "type": "multi", "difficulty": 3, "stem": "以下哪些是 NoSQL 数据库？",
+     "options": ["MySQL", "Redis", "MongoDB", "PostgreSQL"], "reference_answer": [1, 2],
+     "scoring_points": [], "knowledge_tag": "NoSQL", "score_full": 10},
+    {"id": "q3", "type": "short_answer", "difficulty": 3, "stem": "缓存穿透怎么解决？",
+     "options": [], "reference_answer": ["布隆过滤器或空值缓存"],
+     "scoring_points": ["布隆过滤器", "空值缓存", "参数校验"],
+     "knowledge_tag": "Redis", "score_full": 10},
+]}
+
+
+class QuizTests(SessionSetupMixin, APITestCase):
+    """基础笔试：出题/防作弊/判卷/弱项联动（PLAN.md §5.3①）。"""
+
+    def setUp(self):
+        self._setup()
+        self.sid = self.client.post("/api/applications", {"job_id": self.job.id},
+                                    format="json").json()["id"]
+
+    def test_quiz_generation_anticheat_and_idempotent(self):
+        with patch("apps.sessions.exam.generate_quiz",
+                   return_value=list(FAKE_QUIZ["questions"])) as mock:
+            resp = self.client.post(f"/api/applications/{self.sid}/quiz")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertFalse(body["reused"])
+        self.assertEqual(len(body["questions"]), 3)
+        self.assertNotIn("reference_answer", body["questions"][0])  # 防作弊
+        self.assertNotIn("scoring_points", body["questions"][2])
+
+        with patch("apps.sessions.exam.generate_quiz") as mock2:
+            resp = self.client.post(f"/api/applications/{self.sid}/quiz")
+        self.assertTrue(resp.json()["reused"])
+        self.assertEqual(mock2.call_count, 0)
+
+    def test_quiz_submit_grading_and_weak_linkage(self):
+        with patch("apps.sessions.exam.generate_quiz",
+                   return_value=list(FAKE_QUIZ["questions"])):
+            self.client.post(f"/api/applications/{self.sid}/quiz")
+        questions = self.client.get(f"/api/applications/{self.sid}/quiz").json()["questions"]
+        qids = {q["seq"]: q["id"] for q in questions}
+
+        with patch("apps.sessions.exam.grade_short",
+                   return_value=(4.0, {"reason": "要点只中一条"})):
+            resp = self.client.post(
+                f"/api/applications/{self.sid}/quiz/submit",
+                {"answers": [
+                    {"question_id": qids[1], "content": [0]},   # 单选对 10
+                    {"question_id": qids[2], "content": [1]},   # 多选漏选 5
+                    {"question_id": qids[3], "content": "用布隆过滤器"},  # 简答 4
+                ]}, format="json")
+        body = resp.json()
+        self.assertEqual(body["total_full"], 30)
+        self.assertEqual(body["total_score"], 19)
+        # 错题考点汇入 quiz_weak（三段联动）
+        self.assertEqual(sorted(body["quiz_weak"]), ["NoSQL", "Redis"])
+        detail = self.client.get(f"/api/applications/{self.sid}").json()
+        self.assertEqual(detail["interview_state"]["quiz_weak"], body["quiz_weak"])
+        # 重考覆盖旧作答
+        resp = self.client.post(f"/api/applications/{self.sid}/quiz/submit",
+                                {"answers": [{"question_id": qids[1], "content": [0]}]},
+                                format="json")
+        self.assertEqual(resp.json()["total_score"], 10)
+
+    def test_grade_objective_rules(self):
+        from apps.sessions.exam import grade_objective
+
+        q = {"type": "single", "reference_answer": [0], "score_full": 10}
+        self.assertEqual(grade_objective(q, [0])[0], 10.0)
+        self.assertEqual(grade_objective(q, [1])[0], 0.0)
+        qm = {"type": "multi", "reference_answer": [1, 2], "score_full": 10}
+        self.assertEqual(grade_objective(qm, [1, 2])[0], 10.0)
+        self.assertEqual(grade_objective(qm, [1])[0], 5.0)   # 漏选半分
+        self.assertEqual(grade_objective(qm, [0, 1])[0], 0.0)  # 错选零分
+        self.assertEqual(grade_objective(qm, "乱写")[0], 0.0)
+
+    def test_validate_quiz_drops_bad_questions(self):
+        from apps.sessions.exam import _validate_quiz
+
+        questions = _validate_quiz({"questions": [
+            dict(FAKE_QUIZ["questions"][0]),
+            {"id": "bad1", "type": "single", "stem": "缺选项", "options": ["a"],
+             "reference_answer": [0], "score_full": 10},
+            {"id": "bad2", "type": "multi", "stem": "单选当多选", "options": ["a", "b"],
+             "reference_answer": [0], "score_full": 10},
+            *[{**FAKE_QUIZ["questions"][0], "id": f"ok{i}"} for i in range(3, 7)],
+        ]})
+        self.assertEqual(len(questions), 5)  # 两道坏题被丢弃

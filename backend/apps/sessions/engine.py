@@ -12,7 +12,7 @@
 import json
 import re
 
-from core.llm_adapter import ChatMessage, LLMClient
+from core.llm_adapter import ChatMessage, LLMClient, fast_completion_kwargs
 
 from .interview import INTERVIEWER_SYSTEM, parse_eval_tag
 
@@ -211,7 +211,9 @@ def generate_reply(llm: LLMClient, messages: list[ChatMessage], result: dict):
     """
     buf = ""
     emitted = 0
-    for delta in llm.chat_stream(messages, temperature=0.7):
+    # 交互轮次关闭思考模型的 reasoning（首字快）
+    stream_kwargs = {"temperature": 0.7, **fast_completion_kwargs(llm)}
+    for delta in llm.chat_stream(messages, **stream_kwargs):
         buf += delta
         idx = buf.find("[EVAL")
         if idx != -1:

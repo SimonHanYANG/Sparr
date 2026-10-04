@@ -17,7 +17,7 @@ from apps.resumes.models import Resume
 from core.llm_adapter import LLMClient
 
 from .interview import generate_plan
-from .models import ApplicationSession, InterviewPlan, InterviewTurn
+from .models import ApplicationSession, ExamAnswer, ExamQuestion, InterviewPlan, InterviewTurn
 
 # 进行中轮次的取消信号（打断）：(user_id, session_id) -> Event
 _turn_cancels: dict = {}
@@ -186,7 +186,8 @@ def application_plan(request, pk):
         plan_json = generate_plan(
             llm, session.resume_version.structured_json,
             job_title=job_title, jd_text=jd_text,
-            weak_points=_weak_points(session), quiz_weak=[],
+            weak_points=_weak_points(session),
+                quiz_weak=(session.interview_state_json or {}).get("quiz_weak", []),
             duration_min=settings_json.get("duration_min", 30),
             strict_mode=settings_json.get("strict_mode", False))
     except ValueError as exc:
@@ -249,7 +250,8 @@ def application_plan_stream(request, pk):
             plan_json = generate_plan(
                 llm, session.resume_version.structured_json,
                 job_title=job_title, jd_text=jd_text,
-                weak_points=_weak_points(session), quiz_weak=[],
+                weak_points=_weak_points(session),
+                quiz_weak=(session.interview_state_json or {}).get("quiz_weak", []),
                 duration_min=settings_json.get("duration_min", 30),
                 strict_mode=settings_json.get("strict_mode", False),
                 on_tick=on_tick)
@@ -509,3 +511,114 @@ def application_review(request, pk):
     session.review_json = review
     session.save(update_fields=["review_json", "updated_at"])
     return Response({"review": review, "reused": False})
+
+
+def _quiz_payload(q: ExamQuestion, with_answers: bool = False) -> dict:
+    """试卷题目（默认不下发参考答案/评分要点——防作弊）。"""
+    payload = {"id": q.id, "seq": q.seq, "type": q.qtype, "difficulty": q.difficulty,
+               "stem": q.stem, "options": q.options, "score_full": q.score_full,
+               "knowledge_tag": q.knowledge_tag}
+    if with_answers:
+        payload["reference_answer"] = q.reference_answer
+        payload["scoring_points"] = q.scoring_points
+        answer = q.answers.order_by("-submitted_at").first()
+        payload["my_answer"] = ({"content": answer.content, "score": answer.score,
+                                 "judge": answer.judge_json} if answer else None)
+    return payload
+
+
+@api_view(["GET", "POST"])
+def application_quiz(request, pk):
+    """基础笔试：POST 生成试卷（幂等，force 重出）/ GET 取卷（无参考答案）。"""
+    from .exam import generate_quiz
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    existing = session.exam_questions.all()
+
+    if request.method == "GET":
+        answered = existing.filter(answers__isnull=False).exists()
+        total = sum(q.score_full for q in existing)
+        got = sum(q.answers.order_by("-submitted_at").first().score or 0
+                  for q in existing if q.answers.exists())
+        return Response({"questions": [_quiz_payload(q, with_answers=True) for q in existing],
+                         "total_full": total, "total_score": got if answered else None})
+
+    if existing and not request.data.get("force"):
+        return Response({"questions": [_quiz_payload(q) for q in existing], "reused": True})
+    if existing:
+        existing.delete()
+
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    skills = [s.get("name", "") for s in
+              (session.resume_version.structured_json or {}).get("skills", [])
+              if isinstance(s, dict) and s.get("name")]
+    knowledge_points = list(session.job.knowledge_points) if session.job_id else []
+    try:
+        questions = generate_quiz(llm, job_title=session.job_title,
+                                  knowledge_points=knowledge_points,
+                                  resume_skills=skills)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    for i, q in enumerate(questions, 1):
+        ExamQuestion.objects.create(
+            application=session, seq=i, qtype=q["type"], difficulty=q["difficulty"],
+            stem=q["stem"], options=q["options"], reference_answer=q["reference_answer"],
+            scoring_points=q["scoring_points"], knowledge_tag=q["knowledge_tag"],
+            score_full=q["score_full"])
+    return Response({"questions": [_quiz_payload(q) for q in session.exam_questions.all()],
+                     "reused": False})
+
+
+@api_view(["POST"])
+def application_quiz_submit(request, pk):
+    """交卷判分：客观题确定性比对，简答题 LLM 按要点给分；错题考点汇入 quiz_weak。"""
+    from .exam import grade_objective, grade_short
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    questions = list(session.exam_questions.all())
+    if not questions:
+        return Response({"detail": "还没有试卷，请先生成"},
+                        status=status.HTTP_400_BAD_REQUEST)
+    answers_in = {int(a["question_id"]): a.get("content")
+                  for a in request.data.get("answers", [])
+                  if str(a.get("question_id", "")).isdigit()}
+
+    needs_llm = any(q.qtype == ExamQuestion.QType.SHORT for q in questions
+                    if q.id in answers_in)
+    llm = None
+    if needs_llm:
+        llm, model, err = _llm_or_400(request)
+        if err:
+            return err
+
+    results = []
+    weak: list[str] = []
+    for q in questions:
+        q.answers.all().delete()  # 重考覆盖旧作答
+        given = answers_in.get(q.id)
+        qdict = {"type": q.qtype, "stem": q.stem, "reference_answer": q.reference_answer,
+                 "scoring_points": q.scoring_points, "score_full": q.score_full}
+        if q.qtype == ExamQuestion.QType.SHORT:
+            score, judge = grade_short(llm, qdict, str(given or "")) if llm else (0.0, {"reason": "未配置大模型"})
+        else:
+            score, judge = grade_objective(qdict, given)
+        ExamAnswer.objects.create(question=q, content={"given": given},
+                                  score=score, judge_json=judge)
+        if score < q.score_full * 0.6 and q.knowledge_tag and q.knowledge_tag not in weak:
+            weak.append(q.knowledge_tag)
+        results.append({**_quiz_payload(q, with_answers=True),
+                        "my_answer": {"content": given, "score": score, "judge": judge}})
+
+    state = session.interview_state_json or {}
+    state["quiz_weak"] = weak  # 三段联动：错题考点喂给面试官「恰好」追问
+    session.interview_state_json = state
+    session.save(update_fields=["interview_state_json", "updated_at"])
+
+    total_full = sum(q.score_full for q in questions)
+    total = sum(r["my_answer"]["score"] for r in results)
+    return Response({"questions": results, "total_full": total_full,
+                     "total_score": total, "quiz_weak": weak})

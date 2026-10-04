@@ -5,6 +5,8 @@ import { cpp } from '@codemirror/lang-cpp'
 import { go } from '@codemirror/lang-go'
 import { python } from '@codemirror/lang-python'
 import { completeFromList } from '@codemirror/autocomplete'
+import { syntaxTree } from '@codemirror/language'
+import { linter, lintGutter } from '@codemirror/lint'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
@@ -55,7 +57,31 @@ const KEYWORDS: Record<string, string[]> = {
     'append', 'string', 'int', 'error'],
 }
 
-/** CodeMirror 6 编辑器：语法高亮 + 括号自动闭合 + 关键字补全；高度放大便于看补全弹窗。 */
+/** 实时语法纠错：解析语法树中的错误节点 → 红色波浪线 + 侧栏红标 + 悬停说明。 */
+const syntaxLinter = linter(
+  (view) => {
+    const doc = view.state.doc
+    const diagnostics: { from: number; to: number; severity: 'error'; message: string }[] = []
+    syntaxTree(view.state).iterate({
+      enter: (node) => {
+        if (!node.type.isError || diagnostics.length >= 10) return
+        const from = node.from
+        const to = Math.max(node.to, from + 1)
+        const text = doc.sliceString(from, Math.min(to, from + 20))
+        diagnostics.push({
+          from,
+          to,
+          severity: 'error',
+          message: text.trim() ? `语法错误：「${text.trim()}」` : '语法错误：此处结构不符合语言语法',
+        })
+      },
+    })
+    return diagnostics
+  },
+  { delay: 400 },
+)
+
+/** CodeMirror 6 编辑器：语法高亮 + 括号自动闭合 + 关键字补全 + 实时语法纠错；高度放大便于看补全弹窗。 */
 function CodeBox({
   initial,
   language,
@@ -81,6 +107,8 @@ function CodeBox({
           basicSetup,
           langExt(language),
           EditorState.languageData.of(() => [{ autocomplete: completions }]),
+          syntaxLinter,
+          lintGutter(),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString())
           }),

@@ -2,6 +2,13 @@ import { useTranslation } from 'react-i18next'
 
 import type { StructuredResume } from '../../types/resume'
 
+/** 列表字段防御性归一化：脏数据/手改/旧版本里字段可能是标量，统一成数组再渲染。 */
+function arr<T>(v: T[] | T | undefined | null): T[] {
+  if (Array.isArray(v)) return v
+  if (v == null || v === '') return []
+  return [v as T]
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-8">
@@ -14,7 +21,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /** Card-style online resume (PLAN.md §7). */
 export default function ResumeView({ data }: { data: StructuredResume }) {
   const { t } = useTranslation()
-  const { basics, education, skills, projects, work_experiences: work, awards } = data
+  const basics = data.basics ?? { name: '', intent_role: '', contact: '', years_exp: '' }
+  const education = arr(data.education)
+  const skills = arr(data.skills)
+  const projects = arr(data.projects)
+  const work = arr(data.work_experiences)
+  const awards = arr(data.awards)
 
   return (
     <div>
@@ -58,9 +70,9 @@ export default function ResumeView({ data }: { data: StructuredResume }) {
                     {[p.role, p.period].filter(Boolean).join(' · ')}
                   </p>
                 </div>
-                {p.tech_stack.length > 0 && (
+                {arr(p.tech_stack).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {p.tech_stack.map((tech, j) => (
+                    {arr(p.tech_stack).map((tech, j) => (
                       <span key={j} className="rounded-md bg-surface px-2 py-0.5 text-[11.5px] text-muted">
                         {tech}
                       </span>
@@ -68,16 +80,16 @@ export default function ResumeView({ data }: { data: StructuredResume }) {
                   </div>
                 )}
                 <ul className="mt-2.5 space-y-1">
-                  {p.bullets.map((b, j) => (
+                  {arr(p.bullets).map((b, j) => (
                     <li key={j} className="text-[13px] leading-relaxed text-ink">
                       <span className="mr-1.5 text-faint">·</span>
                       {b}
                     </li>
                   ))}
                 </ul>
-                {p.metrics.length > 0 && (
+                {arr(p.metrics).length > 0 && (
                   <div className="mt-2.5 flex flex-wrap gap-2">
-                    {p.metrics.map((m, j) => (
+                    {arr(p.metrics).map((m, j) => (
                       <span key={j} className="rounded-full bg-accent/8 px-2.5 py-0.5 text-[11.5px] text-accent">
                         {m}
                       </span>
@@ -103,7 +115,7 @@ export default function ResumeView({ data }: { data: StructuredResume }) {
                   <p className="text-[12px] text-faint">{w.period}</p>
                 </div>
                 <ul className="mt-1.5 space-y-1">
-                  {w.bullets.map((b, j) => (
+                  {arr(w.bullets).map((b, j) => (
                     <li key={j} className="text-[13px] leading-relaxed text-ink">
                       <span className="mr-1.5 text-faint">·</span>
                       {b}
@@ -141,7 +153,7 @@ export default function ResumeView({ data }: { data: StructuredResume }) {
             {awards.map((a, i) => (
               <li key={i} className="text-[13px] text-ink">
                 <span className="mr-1.5 text-faint">·</span>
-                {a}
+                {String(a)}
               </li>
             ))}
           </ul>

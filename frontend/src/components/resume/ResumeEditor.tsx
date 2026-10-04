@@ -7,6 +7,13 @@ const input =
   'w-full rounded-xl border border-line bg-white px-3.5 py-2 text-[13.5px] text-ink outline-none focus:border-accent'
 const label = 'block text-[11.5px] text-muted mb-1'
 
+/** 列表字段防御性归一化：标量/缺失统一成数组再渲染。 */
+function arr<T>(v: T[] | T | undefined | null): T[] {
+  if (Array.isArray(v)) return v
+  if (v == null || v === '') return []
+  return [v as T]
+}
+
 function linesToArray(text: string): string[] {
   return text.split('\n').map((s) => s.trim()).filter(Boolean)
 }
@@ -86,7 +93,7 @@ export default function ResumeEditor({
               <span className="w-10 shrink-0" />
             </div>
           )}
-          {data.skills.map((s, i) => (
+          {arr(data.skills).map((s, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2">
               <input
                 className={`${input} min-w-[120px] flex-1`}
@@ -126,7 +133,7 @@ export default function ResumeEditor({
           {t('resume.sections.projects')}
         </h2>
         <div className="mt-3 space-y-4">
-          {data.projects.map((p, i) => (
+          {arr(data.projects).map((p, i) => (
             <div key={i} className="rounded-2xl border border-line p-4">
               <div className="grid gap-3 sm:grid-cols-3">
                 <input
@@ -152,7 +159,7 @@ export default function ResumeEditor({
                 <span className={label}>{t('resume.fields.techStack')}</span>
                 <input
                   className={input}
-                  value={p.tech_stack.join(', ')}
+                  value={arr(p.tech_stack).join(', ')}
                   onChange={(e) =>
                     patch((d) =>
                       void (d.projects[i].tech_stack = e.target.value
@@ -168,7 +175,7 @@ export default function ResumeEditor({
                   <span className={label}>{t('resume.fields.bullets')}</span>
                   <textarea
                     className={`${input} h-28 resize-none leading-relaxed`}
-                    value={p.bullets.join('\n')}
+                    value={arr(p.bullets).join('\n')}
                     onChange={(e) =>
                       patch((d) => void (d.projects[i].bullets = linesToArray(e.target.value)))
                     }
@@ -178,7 +185,7 @@ export default function ResumeEditor({
                   <span className={label}>{t('resume.fields.metrics')}</span>
                   <textarea
                     className={`${input} h-28 resize-none leading-relaxed`}
-                    value={p.metrics.join('\n')}
+                    value={arr(p.metrics).join('\n')}
                     onChange={(e) =>
                       patch((d) => void (d.projects[i].metrics = linesToArray(e.target.value)))
                     }
@@ -214,7 +221,7 @@ export default function ResumeEditor({
           {t('resume.sections.work')}
         </h2>
         <div className="mt-3 space-y-4">
-          {data.work_experiences.map((w, i) => (
+          {arr(data.work_experiences).map((w, i) => (
             <div key={i} className="rounded-2xl border border-line p-4">
               <div className="grid gap-3 sm:grid-cols-3">
                 <input
@@ -240,7 +247,7 @@ export default function ResumeEditor({
                 <span className={label}>{t('resume.fields.bullets')}</span>
                 <textarea
                   className={`${input} h-24 resize-none leading-relaxed`}
-                  value={w.bullets.join('\n')}
+                  value={arr(w.bullets).join('\n')}
                   onChange={(e) =>
                     patch((d) => void (d.work_experiences[i].bullets = linesToArray(e.target.value)))
                   }
@@ -273,7 +280,7 @@ export default function ResumeEditor({
           {t('resume.sections.education')}
         </h2>
         <div className="mt-3 space-y-4">
-          {data.education.map((e, i) => (
+          {arr(data.education).map((e, i) => (
             <div key={i} className="rounded-2xl border border-line p-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 {(
@@ -317,7 +324,7 @@ export default function ResumeEditor({
         <div className="mt-3">
           <textarea
             className={`${input} h-24 resize-none leading-relaxed`}
-            value={data.awards.join('\n')}
+            value={arr(data.awards).join('\n')}
             placeholder={t('resume.fields.award')}
             onChange={(e) => patch((d) => void (d.awards = linesToArray(e.target.value)))}
           />

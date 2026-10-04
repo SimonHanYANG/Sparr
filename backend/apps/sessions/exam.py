@@ -11,7 +11,7 @@ from core.llm_adapter import ChatMessage, LLMClient, LLMError, fast_completion_k
 
 from .interview import _parse_json
 
-EXAM_PROMPT = """你是资深笔试出题人。请为报考「{job_title}」的候选人出一份基础笔试（共 {total} 题：单选 {n_single}、多选 {n_multi}、简答 {n_short}）。
+EXAM_PROMPT = """你是资深笔试出题人。请为报考「{job_title}」的候选人出一份基础笔试（共 {total} 题：单选 {n_single}、多选 {n_multi}、简答 {n_short}，每题 score_full 一律 10 分）。
 
 只输出一个 JSON 对象（不要解释、不要代码块）：
 {
@@ -42,7 +42,7 @@ EXAM_PROMPT = """你是资深笔试出题人。请为报考「{job_title}」的�
 }
 
 硬性规则（违反即作废）：
-1. 难度分布严格 3:5:2（difficulty 1-2 : 3 : 4-5）；reference_answer 对选择题是正确选项的序号数组（单选一个、多选两到三个，序号从 0 开始）；简答题是 ["参考表述"]；
+1. 难度分布严格由简入深、3:5:2（difficulty 1-2 : 3 : 4-5）；题目按难度从易到难组织；score_full 一律 10；单选 reference_answer 恰好 1 个选项、多选恰好 2-3 个选项（不得只给 1 个）；reference_answer 对选择题是正确选项的序号数组（单选一个、多选两到三个，序号从 0 开始）；简答题是 ["参考表述"]；
 2. 考点覆盖岗位考点大纲：{knowledge_points}；候选人简历里写到的技术点适当加权：{resume_skills}；
 3. 题目因人因岗定制，选择题干扰项要可信、无明显凑数项；同一考点不出重复题；
 4. 简答题 scoring_points 3-5 条，每条可独立判分；
@@ -69,10 +69,10 @@ def generate_quiz(llm: LLMClient, *, job_title: str, knowledge_points: list[str]
                   max_retries: int = 1) -> list[dict]:
     """一份笔试卷目：validated question dicts（含参考答案，服务端持有）。"""
     prompt = (EXAM_PROMPT
-              .replace("{total}", "10")
-              .replace("{n_single}", "5")
-              .replace("{n_multi}", "2")
-              .replace("{n_short}", "3")
+              .replace("{total}", "20")
+              .replace("{n_single}", "11")
+              .replace("{n_multi}", "5")
+              .replace("{n_short}", "4")
               .replace("{job_title}", job_title)
               .replace("{knowledge_points}", "、".join(knowledge_points[:12]) or "（通用）")
               .replace("{resume_skills}", "、".join(resume_skills[:15]) or "（无）"))
@@ -120,9 +120,12 @@ def _validate_quiz(data: dict) -> list[dict]:
                 continue
             if any(i < 0 or i >= len(options) for i in ref):
                 continue
-            if qtype == "single" and len(ref) != 1:
-                continue
-            if qtype == "multi" and len(ref) < 2:
+            # 智能救题：题型与答案个数不符时就地转换而不是丢弃
+            if qtype == "single" and len(ref) > 1:
+                qtype = "multi"
+            if qtype == "multi" and len(ref) == 1:
+                qtype = "single"
+            if not ref:
                 continue
             points = []
         else:
@@ -144,6 +147,9 @@ def _validate_quiz(data: dict) -> list[dict]:
                      "score_full": score_full})
     if len(kept) < 5:
         raise ValueError("valid questions < 5")
+    # 由简入深：按难度升序组织（同难度先选择后简答），服务端排序不依赖模型自觉
+    type_rank = {"single": 0, "multi": 1, "short_answer": 2}
+    kept.sort(key=lambda q: (q["difficulty"], type_rank.get(q["type"], 9)))
     return kept
 
 

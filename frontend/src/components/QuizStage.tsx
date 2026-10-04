@@ -22,6 +22,7 @@ export default function QuizStage({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [answers, setAnswers] = useState<Record<number, unknown>>({})
+  const [qIndex, setQIndex] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [secondsLeft, setSecondsLeft] = useState(QUIZ_TIME_MIN * 60)
   const submittedRef = useRef(false)
@@ -133,12 +134,15 @@ export default function QuizStage({
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
   const ss = String(secondsLeft % 60).padStart(2, '0')
+  const total = paper.questions.length
+  const q = paper.questions[Math.min(qIndex, total - 1)]
+  const answeredCount = paper.questions.filter((x) => answers[x.id] !== undefined).length
 
   return (
     <div className="mt-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[12px] text-muted">
-          {t('quiz.answerHint', { count: paper.questions.length })}
+          {t('quiz.answerHint', { count: total })}
         </p>
         <span
           className={`rounded-full px-3 py-1 text-[12px] tabular-nums ${
@@ -149,65 +153,106 @@ export default function QuizStage({
         </span>
       </div>
 
-      <div className="mt-3 space-y-3">
-        {paper.questions.map((q, i) => (
-          <div key={q.id} className="rounded-2xl border border-line px-5 py-4">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="text-[11px] text-faint">
-                {i + 1} · {t(`quiz.types.${q.type}`)} · {t('quiz.difficulty')} {q.difficulty}
-              </span>
-              <span className="text-[10.5px] text-faint">· {q.score_full} 分</span>
-            </div>
-            <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">{q.stem}</p>
-            <div className="mt-2.5 space-y-1.5">
-              {q.type === 'short_answer' ? (
-                <textarea
-                  rows={4}
-                  value={(answers[q.id] as string) ?? ''}
-                  onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
-                  placeholder={t('quiz.shortPh')}
-                  className="w-full resize-none rounded-xl border border-line bg-white px-3.5 py-2.5 text-[13px] leading-relaxed text-ink placeholder:text-faint focus:border-accent focus:outline-none"
-                />
-              ) : (
-                q.options.map((opt, oi) => {
-                  const single = q.type === 'single'
-                  const picked = single
-                    ? (answers[q.id] as number[] | undefined)?.[0] === oi
-                    : ((answers[q.id] as number[] | undefined) ?? []).includes(oi)
-                  return (
-                    <button
-                      key={oi}
-                      onClick={() =>
-                        setAnswers((a) => {
-                          if (single) return { ...a, [q.id]: [oi] }
-                          const cur = (a[q.id] as number[] | undefined) ?? []
-                          return {
-                            ...a,
-                            [q.id]: cur.includes(oi)
-                              ? cur.filter((x) => x !== oi)
-                              : [...cur, oi],
-                          }
-                        })
+      {/* 题号导航格：已答着色，点击跳题（单题卡片模式，页面不再无限拉长） */}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {paper.questions.map((x, i) => {
+          const done = answers[x.id] !== undefined
+          return (
+            <button
+              key={x.id}
+              onClick={() => setQIndex(i)}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[11px] tabular-nums transition-colors ${
+                i === qIndex
+                  ? 'bg-ink text-white'
+                  : done
+                    ? 'bg-accent/10 text-accent'
+                    : 'border border-line text-faint hover:text-ink'
+              }`}
+            >
+              {i + 1}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 单题卡片 */}
+      <div className="mt-3 rounded-2xl border border-line px-5 py-4">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[11px] text-faint">
+            {t('quiz.qNo', { cur: qIndex + 1, total })} · {t(`quiz.types.${q.type}`)} ·{' '}
+            {t('quiz.difficulty')} {q.difficulty}
+          </span>
+          <span className="text-[10.5px] text-faint">· {q.score_full} 分</span>
+        </div>
+        <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">{q.stem}</p>
+        <div className="mt-2.5 space-y-1.5">
+          {q.type === 'short_answer' ? (
+            <textarea
+              rows={5}
+              value={(answers[q.id] as string) ?? ''}
+              onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
+              placeholder={t('quiz.shortPh')}
+              className="w-full resize-none rounded-xl border border-line bg-white px-3.5 py-2.5 text-[13px] leading-relaxed text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+            />
+          ) : (
+            q.options.map((opt, oi) => {
+              const single = q.type === 'single'
+              const picked = single
+                ? (answers[q.id] as number[] | undefined)?.[0] === oi
+                : ((answers[q.id] as number[] | undefined) ?? []).includes(oi)
+              return (
+                <button
+                  key={oi}
+                  onClick={() =>
+                    setAnswers((a) => {
+                      if (single) return { ...a, [q.id]: [oi] }
+                      const cur = (a[q.id] as number[] | undefined) ?? []
+                      return {
+                        ...a,
+                        [q.id]: cur.includes(oi)
+                          ? cur.filter((x) => x !== oi)
+                          : [...cur, oi],
                       }
-                      className={`flex w-full items-start gap-2.5 rounded-xl border px-3.5 py-2 text-left transition-colors ${
-                        picked ? 'border-accent bg-accent/5' : 'border-line hover:border-faint'
-                      }`}
-                    >
-                      <span
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[10px] ${
-                          picked ? 'bg-accent text-white' : 'border border-line text-transparent'
-                        } ${single ? 'rounded-full' : 'rounded'}`}
-                      >
-                        ✓
-                      </span>
-                      <span className="text-[12.5px] leading-relaxed text-ink">{opt}</span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </div>
-        ))}
+                    })
+                  }
+                  className={`flex w-full items-start gap-2.5 rounded-xl border px-3.5 py-2 text-left transition-colors ${
+                    picked ? 'border-accent bg-accent/5' : 'border-line hover:border-faint'
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[10px] ${
+                      picked ? 'bg-accent text-white' : 'border border-line text-transparent'
+                    } ${single ? 'rounded-full' : 'rounded'}`}
+                  >
+                    ✓
+                  </span>
+                  <span className="text-[12.5px] leading-relaxed text-ink">{opt}</span>
+                </button>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* 翻页 */}
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          onClick={() => setQIndex((i) => Math.max(0, i - 1))}
+          disabled={qIndex === 0}
+          className="rounded-full border border-line px-4 py-1.5 text-[12px] text-ink hover:border-accent hover:text-accent disabled:opacity-40"
+        >
+          ← {t('quiz.prev')}
+        </button>
+        <span className="flex-1 text-center text-[11px] text-faint">
+          {t('quiz.progress', { answered: answeredCount, total })}
+        </span>
+        <button
+          onClick={() => setQIndex((i) => Math.min(total - 1, i + 1))}
+          disabled={qIndex >= total - 1}
+          className="rounded-full border border-line px-4 py-1.5 text-[12px] text-ink hover:border-accent hover:text-accent disabled:opacity-40"
+        >
+          {t('quiz.next')} →
+        </button>
       </div>
 
       {submit.isError && <p className="mt-2 text-[12px] text-red-600">{t('quiz.submitError')}</p>}
@@ -216,7 +261,7 @@ export default function QuizStage({
           if (window.confirm(t('quiz.submitConfirm'))) submit.mutate()
         }}
         disabled={submit.isPending}
-        className="mt-4 w-full rounded-full bg-accent px-6 py-3 text-[13.5px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+        className="mt-3 w-full rounded-full bg-accent px-6 py-3 text-[13.5px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
       >
         {submit.isPending ? t('quiz.grading') : t('quiz.submit')}
       </button>

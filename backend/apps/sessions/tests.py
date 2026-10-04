@@ -584,6 +584,21 @@ class QuizTests(SessionSetupMixin, APITestCase):
         self.assertEqual(grade_objective(qm, [0, 1])[0], 0.0)  # 错选零分
         self.assertEqual(grade_objective(qm, "乱写")[0], 0.0)
 
+    def test_validate_quiz_sorts_easy_to_hard(self):
+        """用户要求：由简入深出题——服务端排序保证，不依赖模型自觉。"""
+        from apps.sessions.exam import _validate_quiz
+
+        mixed = [
+            {**FAKE_QUIZ["questions"][0], "id": "h1", "difficulty": 5},
+            {**FAKE_QUIZ["questions"][0], "id": "e1", "difficulty": 1},
+            {**FAKE_QUIZ["questions"][1], "id": "m1", "difficulty": 3},
+            {**FAKE_QUIZ["questions"][2], "id": "m2", "difficulty": 3},
+            {**FAKE_QUIZ["questions"][0], "id": "e2", "difficulty": 2},
+        ]
+        questions = _validate_quiz({"questions": mixed})
+        diffs = [q["difficulty"] for q in questions]
+        self.assertEqual(diffs, sorted(diffs))  # 由简入深
+
     def test_validate_quiz_drops_bad_questions(self):
         from apps.sessions.exam import _validate_quiz
 
@@ -591,11 +606,13 @@ class QuizTests(SessionSetupMixin, APITestCase):
             dict(FAKE_QUIZ["questions"][0]),
             {"id": "bad1", "type": "single", "stem": "缺选项", "options": ["a"],
              "reference_answer": [0], "score_full": 10},
-            {"id": "bad2", "type": "multi", "stem": "单选当多选", "options": ["a", "b"],
+            {"id": "bad2", "type": "multi", "stem": "单答案多选救成单选", "options": ["a", "b"],
              "reference_answer": [0], "score_full": 10},
             *[{**FAKE_QUIZ["questions"][0], "id": f"ok{i}"} for i in range(3, 7)],
         ]})
-        self.assertEqual(len(questions), 5)  # 两道坏题被丢弃
+        self.assertEqual(len(questions), 6)  # 缺选项的丢弃；题型/答案数不符的救题转换
+        salvaged = [q for q in questions if q["id"] == "bad2"][0]
+        self.assertEqual(salvaged["type"], "single")  # 多选只给 1 个答案 -> 就地转单选
 
 
 FAKE_CODING = {"questions": [

@@ -101,8 +101,10 @@ def apply_eval_to_state(state: dict, eval_data: dict | None, *, seq: int,
             state["found_highlights"].append({"text": highlight, "seq": seq})
     state["evals_digest"] = (state["evals_digest"] + [digest])[-EVALS_DIGEST_MAX:]
 
-    # 未兑现线索：面试官说"待会儿/稍后再聊"时记下，后期 prompt 提醒兑现（机制 6）
-    for m in re.finditer(r"(?:待会儿|稍后|回头|一会儿)(?:我们)?(?:再|接着)?(?:聊|说|讨论)([^。？!?！\n]{2,30})", visible):
+    # 未兑现线索：面试官说"待会儿补/我先记着/还没答"时记下，后期 prompt 提醒兑现（机制 6）
+    for m in re.finditer(
+            r"(?:待会儿|稍后|回头|一会儿|先记着|我记着)(?:我们)?(?:再|接着)?(?:聊|说|讨论|补|问|答)"
+            r"([^。？!?！\n]{2,30})", visible):
         thread = m.group(1).strip()
         if thread and thread not in state["dangling_threads"]:
             state["dangling_threads"].append(thread)

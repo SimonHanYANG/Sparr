@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import {
+  cancelTurn,
   getApplication,
   planStream,
   postTurn,
@@ -324,29 +325,38 @@ export default function InterviewRoom() {
       {session.has_plan && started && !finished && (
         <div className="mt-4">
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => send({ action: 'hint' })}
-              disabled={busy}
-              className="rounded-full border border-line px-3.5 py-1.5 text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
-            >
-              {t('interview.hint')}
-            </button>
-            <button
-              onClick={() => send({ action: 'skip' })}
-              disabled={busy}
-              className="rounded-full border border-line px-3.5 py-1.5 text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
-            >
-              {t('interview.skip')}
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm(t('interview.endConfirm'))) send({ action: 'end' })
-              }}
-              disabled={busy}
-              className="rounded-full border border-line px-3.5 py-1.5 text-[12px] text-faint hover:border-red-300 hover:text-red-500 disabled:opacity-50"
-            >
-              {t('interview.end')}
-            </button>
+            {busy ? (
+              /* 打断：随时打断面试官的输出（已流出部分保留） */
+              <button
+                onClick={() => void cancelTurn(sessionId)}
+                className="rounded-full border border-accent px-4 py-1.5 text-[12px] font-medium text-accent transition-colors hover:bg-accent/10"
+              >
+                ⏹ {t('interview.interrupt')}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => send({ action: 'hint' })}
+                  className="rounded-full border border-line px-3.5 py-1.5 text-[12px] text-muted hover:border-accent hover:text-accent"
+                >
+                  {t('interview.hint')}
+                </button>
+                <button
+                  onClick={() => send({ action: 'skip' })}
+                  className="rounded-full border border-line px-3.5 py-1.5 text-[12px] text-muted hover:border-accent hover:text-accent"
+                >
+                  {t('interview.skip')}
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(t('interview.endConfirm'))) send({ action: 'end' })
+                  }}
+                  className="rounded-full border border-line px-3.5 py-1.5 text-[12px] text-faint hover:border-red-300 hover:text-red-500"
+                >
+                  {t('interview.end')}
+                </button>
+              </>
+            )}
           </div>
           <div className="mt-2.5 flex items-end gap-2">
             <textarea

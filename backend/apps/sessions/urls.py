@@ -9,4 +9,6 @@ urlpatterns = [
     path("applications/<int:pk>/plan/stream", views.application_plan_stream,
          name="application-plan-stream"),
     path("applications/<int:pk>/turns", views.application_turn, name="application-turn"),
+    path("applications/<int:pk>/turns/cancel", views.application_turn_cancel,
+         name="application-turn-cancel"),
 ]

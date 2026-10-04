@@ -391,3 +391,44 @@ class InterviewTurnStreamTests(SessionSetupMixin, APITransactionTestCase):
         self.assertEqual([k for k, _ in events], ["done"])
         self.assertIn('"reused": true', events[0][1])
         self.assertEqual(mock.call_count, 0)
+
+    def test_interrupt_stops_stream_and_persists_partial(self):
+        """打断：生成中途停止，已流出部分落库（meta.interrupted），不再有告别。"""
+        import time
+
+        fake = MagicMock()
+        fake.provider, fake.model = "mimo", "mimo-v2.6-flash"
+        fake.chat.return_value = "摘要"
+
+        def _stream(messages, **kwargs):
+            def gen():
+                for i in range(50):
+                    yield f"第{i}段。"
+                    time.sleep(0.05)
+            return gen()
+
+        fake.chat_stream.side_effect = _stream
+
+        sid2 = self.client.post("/api/applications", {"job_id": self.job.id},
+                                format="json").json()["id"]
+        with patch("apps.sessions.views.generate_plan", return_value=FAKE_PLAN):
+            self.client.post(f"/api/applications/{sid2}/plan")
+
+        with patch("apps.sessions.views._llm_or_400",
+                   return_value=(fake, "mimo-v2.6-flash", None)):
+            resp = self.client.post(f"/api/applications/{sid2}/turns",
+                                    {"action": "answer", "content": "我做过缓存网关"})
+            it = resp.streaming_content
+            frames = [next(it)]  # meta
+            time.sleep(0.25)  # 让几段流出后再打断
+            self.client.post(f"/api/applications/{sid2}/turns/cancel")
+            frames += list(it)  # 排干到 done
+
+        text = "".join(f.decode() if isinstance(f, bytes) else f for f in frames)
+        self.assertIn('"interrupted": true', text)
+        detail = self.client.get(f"/api/applications/{sid2}").json()
+        last = detail["turns"][-1]
+        self.assertEqual(last["role"], "interviewer")
+        self.assertTrue(last["meta"].get("interrupted"))
+        self.assertIn("第", last["content"])  # 已流出的部分保留
+        self.assertLess(last["content"].count("段。"), 50)  # 但没有跑完全部生成

@@ -113,3 +113,9 @@ export const postTurn = (
   body: { content?: string; action?: 'start' | 'answer' | 'hint' | 'skip' | 'end' },
   onEvent: (event: string, data: Record<string, unknown>) => void,
 ) => apiStream(`/api/applications/${id}/turns`, body, onEvent)
+
+/** 打断：停止当前面试官生成（已流出部分落库）。 */
+export const cancelTurn = (id: number) =>
+  apiFetch<{ ok: boolean; interrupted: boolean }>(`/api/applications/${id}/turns/cancel`, {
+    method: 'POST',
+  })

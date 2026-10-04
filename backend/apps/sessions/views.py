@@ -17,6 +17,9 @@ from core.llm_adapter import LLMClient
 from .interview import generate_plan
 from .models import ApplicationSession, InterviewPlan, InterviewTurn
 
+# 进行中轮次的取消信号（打断）：(user_id, session_id) -> Event
+_turn_cancels: dict = {}
+
 
 def _resolve_resume_version(request):
     resume_id = request.data.get("resume_id")
@@ -369,6 +372,8 @@ def application_turn(request, pk):
     session.save()
 
     q: queue_mod.Queue = queue_mod.Queue()
+    cancel = threading.Event()
+    _turn_cancels[(session.user_id, session.id)] = cancel
 
     def worker():
         try:
@@ -376,8 +381,14 @@ def application_turn(request, pk):
                                       directive=directive, exclude_seq=seq)
             result: dict = {}
             chunks: list[str] = []
+            interrupted = False
+            gen = generate_reply(llm, messages, result)
             try:
-                for chunk in generate_reply(llm, messages, result):
+                for chunk in gen:
+                    if cancel.is_set():  # 打断：停止生成，已流出的部分落库
+                        interrupted = True
+                        gen.close()
+                        break
                     chunks.append(chunk)
                     q.put(("delta", {"text": chunk}))
             except Exception as exc:  # noqa: BLE001 — 流中断：partial 落库
@@ -388,6 +399,21 @@ def application_turn(request, pk):
                 session.last_turn_seq = seq + 1
                 session.save(update_fields=["last_turn_seq", "updated_at"])
                 raise exc
+
+            if interrupted:
+                turn = InterviewTurn.objects.create(
+                    application_id=session.id, seq=seq + 1,
+                    role=InterviewTurn.Role.INTERVIEWER,
+                    content="".join(chunks),
+                    meta={"partial": True, "interrupted": True})
+                session.last_turn_seq = seq + 1
+                session.save(update_fields=["last_turn_seq", "updated_at"])
+                q.put(("done", {"turn": _turn_payload(turn),
+                                "state": session.interview_state_json,
+                                "status": session.status,
+                                "last_turn_seq": session.last_turn_seq,
+                                "interrupted": True}))
+                return
 
             visible = result.get("visible", "")
             eval_data = result.get("eval")
@@ -401,9 +427,6 @@ def application_turn(request, pk):
             new_state = apply_eval_to_state(state, eval_data, seq=seq + 1,
                                             plan_json=plan.plan_json,
                                             visible=visible)
-            if action == "end":
-                session.status = ApplicationSession.Status.FINISHED
-                session.finished_at = timezone.now()
             session.interview_state_json = new_state
             session.last_turn_seq = seq + 1
             session.save()
@@ -415,6 +438,7 @@ def application_turn(request, pk):
         except Exception as exc:  # noqa: BLE001
             q.put(("error", {"detail": str(exc)}))
         finally:
+            _turn_cancels.pop((session.user_id, session.id), None)
             connection.close()
 
     threading.Thread(target=worker, daemon=True).start()
@@ -423,10 +447,24 @@ def application_turn(request, pk):
         yield sse_event("meta", {"session_id": session.id, "seq": seq,
                                 "action": action, "decided": decided,
                                 "model": f"{llm.provider}/{llm.model}"})
-        while True:
-            kind, data = q.get()
-            yield sse_event(kind, data)
-            if kind in ("done", "error"):
-                return
+        try:
+            while True:
+                kind, data = q.get()
+                yield sse_event(kind, data)
+                if kind in ("done", "error"):
+                    return
+        finally:
+            cancel.set()  # 客户端断开/生成器关闭也算打断
 
     return sse_response(event_iter())
+
+
+@api_view(["POST"])
+def application_turn_cancel(request, pk):
+    """打断：停止当前正在生成的面试官回复（已流出部分落库）。"""
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    cancel = _turn_cancels.get((session.user_id, session.id))
+    if cancel:
+        cancel.set()
+        return Response({"ok": True, "interrupted": True})
+    return Response({"ok": True, "interrupted": False})

@@ -73,7 +73,15 @@ class LLMClient:
                               json=self._payload(messages, stream=False, **kwargs),
                               timeout=self.timeout)
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            content = data["choices"][0]["message"].get("content") or ""
+            if not content:
+                # 思考模型（reasoning）会把 max_tokens 预算吃光导致正文为空/截断
+                finish = data["choices"][0].get("finish_reason", "")
+                raise LLMError(
+                    f"LLM {self.provider} returned empty content"
+                    + (f" (finish_reason={finish}, 提高 max_tokens 或关闭思考)" if finish else ""))
+            return content
         except httpx.HTTPStatusError as exc:
             raise LLMError(f"LLM {self.provider} HTTP {exc.response.status_code}: "
                            f"{exc.response.text[:300]}") from exc
@@ -114,6 +122,13 @@ class LLMClient:
             return True, "ok"
         except LLMError as exc:
             return False, str(exc)
+
+
+def fast_completion_kwargs(llm: "LLMClient") -> dict:
+    """思考模型（MiMo v2.6 系列会输出 reasoning_content 且计入 max_tokens 预算）
+    的提速开关：对时延敏感的调用（交互对话/出题/判卷）关闭 reasoning。
+    其他 provider 忽略未知字段/无需该参数。"""
+    return {"thinking": {"type": "disabled"}} if llm.provider == "mimo" else {}
 
 
 def _extract_delta(data: str) -> str:

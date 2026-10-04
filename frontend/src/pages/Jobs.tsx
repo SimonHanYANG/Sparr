@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
+import { createApplication } from '../api/applications'
 import {
   analyzeMatch,
   getSelfCheck,
@@ -13,6 +14,7 @@ import {
   type JobPosition,
   type MatchEval,
 } from '../api/profiling'
+import { useAuth } from '../stores/auth'
 
 const CATEGORIES = ['', '后端', '前端', '算法', '产品', '数据', '测试', '运维']
 const CHECK_STATES = ['掌握', '模糊', '不会'] as const
@@ -41,9 +43,17 @@ function MiniMatch({ ev }: { ev: MatchEval }) {
 /** Expanded job panel = prep workbench: match + self-check + CTAs. */
 function Workbench({ job }: { job: JobPosition }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const loggedIn = useAuth((s) => s.loggedIn)
   const [checks, setChecks] = useState<Record<string, string>>({})
   const [evalResult, setEvalResult] = useState<MatchEval | null>(null)
+
+  // 一键开练：建会话（快）→ 立即进面试间，面试计划在房间里流式生成
+  const startInterview = useMutation({
+    mutationFn: () => createApplication({ job_id: job.id }),
+    onSuccess: (session) => navigate(`/applications/${session.id}`),
+  })
 
   const { data: checkData } = useQuery({
     queryKey: ['self-check', job.id],
@@ -151,12 +161,13 @@ function Workbench({ job }: { job: JobPosition }) {
         >
           {job.is_target ? `★ ${t('jobs.targetRemove')}` : `☆ ${t('jobs.targetAdd')}`}
         </button>
-        <Link
-          to="/applications"
-          className="rounded-full bg-accent px-5 py-2 text-[12px] font-medium text-white hover:bg-accent-hover"
+        <button
+          onClick={() => (loggedIn ? startInterview.mutate() : navigate('/login'))}
+          disabled={startInterview.isPending}
+          className="rounded-full bg-accent px-5 py-2 text-[12px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
-          {t('jobs.mockBtn')} →
-        </Link>
+          {startInterview.isPending ? t('interview.creating') : `${t('jobs.mockBtn')} →`}
+        </button>
       </div>
     </div>
   )

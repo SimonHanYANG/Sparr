@@ -1,10 +1,11 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import Layout from './components/Layout'
+import Applications from './pages/Applications'
 import Auth from './pages/Auth'
 import Home from './pages/Home'
+import InterviewRoom from './pages/InterviewRoom'
 import Jobs from './pages/Jobs'
-import Placeholder from './pages/Placeholder'
 import Profiling from './pages/Profiling'
 import ResumeDetail from './pages/ResumeDetail'
 import Resumes from './pages/Resumes'
@@ -54,7 +55,15 @@ export default function App() {
           path="applications"
           element={
             <RequireAuth>
-              <Placeholder titleKey="page.applicationsTitle" descKey="page.applicationsDesc" />
+              <Applications />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="applications/:id"
+          element={
+            <RequireAuth>
+              <InterviewRoom />
             </RequireAuth>
           }
         />

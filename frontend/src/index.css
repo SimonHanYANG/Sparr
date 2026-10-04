@@ -44,3 +44,67 @@ body {
 .animate-fade {
   animation: sparr-fade 0.35s ease both;
 }
+
+/* Orbiting light ring for loading cards — a single accent light travels
+   around the card border (requested for plan-generation feedback). */
+@property --orbit-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.orbit-wrap {
+  position: relative;
+  border-radius: 1rem;
+}
+.orbit-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--orbit-angle),
+    transparent 0deg 268deg,
+    color-mix(in srgb, var(--color-accent) 35%, transparent) 310deg,
+    var(--color-accent) 342deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: orbit-spin 2.2s linear infinite;
+}
+@keyframes orbit-spin {
+  to {
+    --orbit-angle: 360deg;
+  }
+}
+.orbit-wrap > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Interviewer typing indicator — three bouncing dots while awaiting the
+   first streamed token ("thinking"). */
+.typing-dot {
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}

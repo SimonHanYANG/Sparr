@@ -53,6 +53,9 @@ class ApplicationSession(models.Model):
     context_summary_turn_seq = models.IntegerField(default=0)
     last_turn_seq = models.IntegerField(default=0)
 
+    # 面试后复盘（§5.3③ 面试后：维度评估 + 逐题复盘；Phase 5 汇入 FinalReport）
+    review_json = models.JSONField(null=True, blank=True)
+
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

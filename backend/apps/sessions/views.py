@@ -3,6 +3,8 @@
 面试计划生成挂在这里（一次 LLM 调用，幂等：已有计划直接返回，force=true 重生成）。
 SSE 面试轮次接口在 Phase 3 增量 2（interview turn 状态机）。
 """
+import json
+
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -94,6 +96,7 @@ def _session_payload(s: ApplicationSession, *, with_plan=False,
         "interview_state": s.interview_state_json,
         "last_turn_seq": s.last_turn_seq,
         "has_plan": InterviewPlan.objects.filter(application=s).exists(),
+        "review": s.review_json,
         "started_at": s.started_at.isoformat() if s.started_at else None,
         "finished_at": s.finished_at.isoformat() if s.finished_at else None,
         "updated_at": s.updated_at.isoformat(),
@@ -468,3 +471,41 @@ def application_turn_cancel(request, pk):
         cancel.set()
         return Response({"ok": True, "interrupted": True})
     return Response({"ok": True, "interrupted": False})
+
+
+@api_view(["POST"])
+def application_review(request, pk):
+    """面试后复盘（§5.3③）：整场对话 -> 维度评估 + 逐题复盘，幂等（force 重生成）。
+
+    Phase 5 的 FinalReport 直接消费 review_json，不再重复分析。
+    """
+    from .interview import generate_review
+
+    session = get_object_or_404(ApplicationSession, pk=pk, user=request.user)
+    if session.review_json and not request.data.get("force"):
+        return Response({"review": session.review_json, "reused": True})
+    if not session.turns.exists():
+        return Response({"detail": "还没有面试对话，无法复盘"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    llm, model, err = _llm_or_400(request)
+    if err:
+        return err
+
+    role_names = {"interviewer": "面试官", "candidate": "候选人", "system": "（系统）"}
+    lines = [f"[{role_names.get(t.role, t.role)}] {t.content}"
+             for t in session.turns.all()]
+    evals = [d for d in (session.interview_state_json or {}).get("evals_digest", [])]
+    if evals:
+        lines.append("[面试官隐藏评估摘要] " + json.dumps(evals, ensure_ascii=False)[:2000])
+    transcript = "\n".join(lines)
+
+    try:
+        review = generate_review(llm, session.job_title, transcript)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+    review["model_name"] = f"{llm.provider}/{llm.model}"
+    review["generated_at"] = timezone.now().isoformat()
+    session.review_json = review
+    session.save(update_fields=["review_json", "updated_at"])
+    return Response({"review": review, "reused": False})

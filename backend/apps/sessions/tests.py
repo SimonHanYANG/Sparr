@@ -432,3 +432,74 @@ class InterviewTurnStreamTests(SessionSetupMixin, APITransactionTestCase):
         self.assertTrue(last["meta"].get("interrupted"))
         self.assertIn("第", last["content"])  # 已流出的部分保留
         self.assertLess(last["content"].count("段。"), 50)  # 但没有跑完全部生成
+
+
+class ReviewTests(SessionSetupMixin, APITestCase):
+    """面试后复盘：维度评估 + 逐题复盘，幂等生成（Phase 5 汇入 FinalReport）。"""
+
+    FAKE_REVIEW = {
+        "dimensions": {"基础知识": 72, "项目深度": 65, "沟通表达": 80, "岗位匹配": 70},
+        "overall": "基础扎实但项目指标口径不清",
+        "hire_impression": "待定",
+        "highlights": ["提到缓存网关的 QPS 10k"],
+        "weaknesses": ["QPS 口径未说清"],
+        "per_question": [{"question": "自我介绍", "answer_summary": "三年后端",
+                          "evaluation": "过短", "score": 2}],
+        "advice": ["准备指标口径"],
+    }
+
+    def setUp(self):
+        self._setup()
+        sid = self.client.post("/api/applications", {"job_id": self.job.id},
+                               format="json").json()["id"]
+        with patch("apps.sessions.views.generate_plan", return_value=FAKE_PLAN):
+            self.client.post(f"/api/applications/{sid}/plan")
+        from apps.sessions.models import ApplicationSession, InterviewTurn
+
+        session = ApplicationSession.objects.get(pk=sid)
+        InterviewTurn.objects.create(application=session, seq=1, role="interviewer",
+                                     content="介绍下自己")
+        InterviewTurn.objects.create(application=session, seq=2, role="candidate",
+                                     content="三年后端，做过缓存网关")
+        session.last_turn_seq = 2
+        session.save()
+        self.sid = sid
+
+    def test_review_generation_idempotent(self):
+        with patch("apps.sessions.interview.generate_review",
+                   return_value=dict(self.FAKE_REVIEW)) as mock:
+            resp = self.client.post(f"/api/applications/{self.sid}/review")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertFalse(body["reused"])
+        self.assertEqual(body["review"]["dimensions"]["基础知识"], 72)
+        self.assertIn("model_name", body["review"])
+
+        with patch("apps.sessions.interview.generate_review") as mock2:
+            resp = self.client.post(f"/api/applications/{self.sid}/review")
+        self.assertTrue(resp.json()["reused"])
+        self.assertEqual(mock2.call_count, 0)
+
+        with patch("apps.sessions.interview.generate_review",
+                   return_value=dict(self.FAKE_REVIEW)):
+            resp = self.client.post(f"/api/applications/{self.sid}/review",
+                                    {"force": True}, format="json")
+        self.assertFalse(resp.json()["reused"])
+
+    def test_review_requires_turns(self):
+        sid2 = self.client.post("/api/applications", {"job_id": self.job.id},
+                                format="json").json()["id"]
+        resp = self.client.post(f"/api/applications/{sid2}/review")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_validate_review_clamps(self):
+        from apps.sessions.interview import _validate_review
+
+        data = _validate_review({
+            "dimensions": {"基础知识": 150, "项目深度": "x"},
+            "per_question": [{"question": "q"}, {"noq": 1}],
+            "hire_impression": "乱写"})
+        self.assertEqual(data["dimensions"]["基础知识"], 100)
+        self.assertEqual(data["dimensions"]["项目深度"], 0)
+        self.assertEqual(data["hire_impression"], "待定")
+        self.assertEqual(len(data["per_question"]), 1)

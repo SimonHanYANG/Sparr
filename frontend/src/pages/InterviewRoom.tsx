@@ -1,16 +1,173 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import {
   cancelTurn,
+  generateReview,
   getApplication,
   planStream,
   postTurn,
   type InterviewTurn,
   type PlanJson,
+  type ReviewData,
 } from '../api/applications'
+
+const REVIEW_DIMS = ['基础知识', '项目深度', '沟通表达', '岗位匹配']
+
+/** Post-interview review (复盘): dimension scores + per-question timeline. */
+function ReviewSection({ sessionId, review }: { sessionId: number; review: ReviewData | null }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [elapsed, setElapsed] = useState(0)
+  const gen = useMutation({
+    mutationFn: () => generateReview(sessionId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['application', sessionId] }),
+  })
+  useEffect(() => {
+    if (!gen.isPending) return
+    const timer = window.setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [gen.isPending])
+
+  if (gen.isPending)
+    return (
+      <div className="mt-6">
+        <div className="orbit-wrap">
+          <div className="rounded-2xl border border-line px-6 py-7">
+            <p className="text-[13.5px] font-medium text-ink">{t('interview.reviewLoading')}</p>
+            <p className="mt-1 text-[11.5px] text-faint">
+              {t('interview.planElapsed', { sec: elapsed })}
+            </p>
+            <div className="mt-4 h-0.5 w-full overflow-hidden rounded-full bg-surface">
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-accent/40" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+
+  if (!review)
+    return (
+      <div className="mt-6 rounded-2xl border border-line px-6 py-6 text-center">
+        <p className="text-[13.5px] text-ink">{t('interview.finished')}</p>
+        <p className="mt-1 text-[12px] text-muted">{t('interview.reviewHint')}</p>
+        {gen.isError && <p className="mt-2 text-[12px] text-red-600">{t('interview.reviewError')}</p>}
+        <button
+          onClick={() => gen.mutate()}
+          className="mt-4 rounded-full bg-accent px-6 py-2.5 text-[13px] font-medium text-white hover:bg-accent-hover"
+        >
+          {t('interview.reviewBtn')}
+        </button>
+      </div>
+    )
+
+  return (
+    <div className="mt-6 rounded-2xl border border-line px-6 py-5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p className="text-[15px] font-medium text-ink">{t('interview.reviewTitle')}</p>
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-[11px] ${
+            review.hire_impression === '强推' || review.hire_impression === '推荐'
+              ? 'bg-emerald-50 text-emerald-700'
+              : review.hire_impression === '不推荐'
+                ? 'bg-red-50 text-red-600'
+                : 'bg-amber-50 text-amber-700'
+          }`}
+        >
+          {t(`interview.hire.${review.hire_impression}`)}
+        </span>
+      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink">{review.overall}</p>
+
+      {/* dimension bars */}
+      <p className="mt-4 text-[11.5px] font-medium text-muted">{t('interview.reviewDims')}</p>
+      <div className="mt-2 space-y-1.5">
+        {REVIEW_DIMS.filter((d) => review.dimensions[d] != null).map((d) => (
+          <div key={d} className="flex items-center gap-3">
+            <span className="w-16 shrink-0 text-[11.5px] text-muted">
+              {t(`interview.dims.${d}`)}
+            </span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
+              <div
+                className="h-full rounded-full bg-accent/70"
+                style={{ width: `${review.dimensions[d]}%` }}
+              />
+            </div>
+            <span className="w-8 shrink-0 text-right text-[11.5px] tabular-nums text-ink">
+              {review.dimensions[d]}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {review.highlights.length > 0 && (
+        <>
+          <p className="mt-4 text-[11.5px] font-medium text-emerald-700">
+            {t('interview.reviewHighlights')}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {review.highlights.map((h, i) => (
+              <li key={i} className="text-[12px] leading-relaxed text-muted">
+                · {h}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {review.weaknesses.length > 0 && (
+        <>
+          <p className="mt-3 text-[11.5px] font-medium text-amber-700">
+            {t('interview.reviewWeaknesses')}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {review.weaknesses.map((w, i) => (
+              <li key={i} className="text-[12px] leading-relaxed text-muted">
+                · {w}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {review.per_question.length > 0 && (
+        <>
+          <p className="mt-4 text-[11.5px] font-medium text-muted">
+            {t('interview.reviewPerQuestion')}
+          </p>
+          <div className="mt-2 space-y-2">
+            {review.per_question.map((q, i) => (
+              <div key={i} className="rounded-xl bg-surface px-4 py-2.5">
+                <div className="flex items-start gap-2">
+                  <p className="min-w-0 flex-1 text-[12px] font-medium text-ink">{q.question}</p>
+                  <span className="shrink-0 text-[11px] tabular-nums text-accent">
+                    {q.score}/5
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-faint">{q.answer_summary}</p>
+                <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted">{q.evaluation}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {review.advice.length > 0 && (
+        <>
+          <p className="mt-4 text-[11.5px] font-medium text-muted">{t('interview.reviewAdvice')}</p>
+          <ul className="mt-1.5 space-y-1">
+            {review.advice.map((a, i) => (
+              <li key={i} className="text-[12px] leading-relaxed text-muted">
+                · {a}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+}
 
 /** Plan preview: phases + per-question why (anti-mechanical transparency). */
 function PlanCard({ plan }: { plan: PlanJson }) {
@@ -55,6 +212,7 @@ function PlanCard({ plan }: { plan: PlanJson }) {
 
 function TurnBubble({ turn }: { turn: InterviewTurn }) {
   const { t } = useTranslation()
+  if (!turn.content.trim()) return null // 空轮次（如打断残留）不渲染
   if (turn.role === 'system')
     return <p className="my-3 text-center text-[11px] text-faint">{turn.content}</p>
   const mine = turn.role === 'candidate'
@@ -384,15 +542,17 @@ export default function InterviewRoom() {
       )}
 
       {finished && (
-        <div className="mt-6 rounded-2xl border border-line px-6 py-6 text-center">
-          <p className="text-[14px] text-ink">{t('interview.finished')}</p>
-          <Link
-            to="/applications"
-            className="mt-2 inline-block text-[12.5px] text-accent hover:underline"
-          >
-            {t('interview.backToList')} →
-          </Link>
-        </div>
+        <>
+          <ReviewSection sessionId={sessionId} review={session.review ?? null} />
+          <div className="mt-4 text-center">
+            <Link
+              to="/applications"
+              className="inline-block text-[12.5px] text-accent hover:underline"
+            >
+              {t('interview.backToList')} →
+            </Link>
+          </div>
+        </>
       )}
     </div>
   )

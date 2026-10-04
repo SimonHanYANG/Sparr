@@ -53,6 +53,18 @@ export interface ApplicationListItem {
   created_at: string
 }
 
+export interface ReviewData {
+  dimensions: Record<string, number>
+  overall: string
+  hire_impression: string
+  highlights: string[]
+  weaknesses: string[]
+  per_question: { question: string; answer_summary: string; evaluation: string; score: number }[]
+  advice: string[]
+  model_name?: string
+  generated_at?: string
+}
+
 export interface ApplicationDetail {
   id: number
   status: 'created' | 'in_progress' | 'finished'
@@ -72,6 +84,7 @@ export interface ApplicationDetail {
   has_plan: boolean
   plan: PlanJson | null
   plan_model: string
+  review: ReviewData | null
   turns: InterviewTurn[]
   started_at: string | null
   finished_at: string | null
@@ -118,4 +131,11 @@ export const postTurn = (
 export const cancelTurn = (id: number) =>
   apiFetch<{ ok: boolean; interrupted: boolean }>(`/api/applications/${id}/turns/cancel`, {
     method: 'POST',
+  })
+
+/** 面试后复盘：维度评估 + 逐题复盘（幂等，force 重生成）。 */
+export const generateReview = (id: number, force = false) =>
+  apiFetch<{ review: ReviewData; reused: boolean }>(`/api/applications/${id}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ force }),
   })

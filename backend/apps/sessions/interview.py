@@ -277,6 +277,77 @@ def extract_plan_hints(buf: str) -> list[str]:
     return hints
 
 
+REVIEW_PROMPT = """你是这场模拟面试的面试官本人。面试刚刚结束，请基于整场对话做一份严谨的复盘（不讨好，评分基于证据）。
+
+只输出一个 JSON 对象（不要解释、不要代码块）：
+{
+  "dimensions": {"基础知识": 0-100的整数, "项目深度": 0-100, "沟通表达": 0-100, "岗位匹配": 0-100},
+  "overall": "一句话总评（40字内）",
+  "hire_impression": "强推|推荐|待定|不推荐",
+  "highlights": ["亮点（引用具体回答内容）", "..."],
+  "weaknesses": ["不足（引用具体回答内容）", "..."],
+  "per_question": [
+    {"question": "问过的主要问题", "answer_summary": "候选人回答要点一句话", "evaluation": "评估（引用回答内容）", "score": 0-5}
+  ],
+  "advice": ["改进建议（面试准备/补能力/改简历），2-4条"]
+}
+
+硬性要求：
+1. per_question 按时间顺序覆盖面试中实际问过的主要问题（含被打断/换题的轮次）；
+2. highlights/weaknesses/per_question 的 evaluation 必须引用候选人回答里的具体内容，禁止泛泛而谈；
+3. 严格评分不讨好；JSON 格式严格合法（字符串值内禁止英文双引号，引用用「」）。
+
+目标岗位：{job_title}
+
+面试对话全文：
+{transcript}
+"""
+
+
+def generate_review(llm: LLMClient, job_title: str, transcript: str,
+                    max_retries: int = 1) -> dict:
+    """面试后复盘：对话全文 -> 维度评估 + 逐题复盘（容错解析同计划管线）。"""
+    prompt = (REVIEW_PROMPT
+              .replace("{job_title}", job_title)
+              .replace("{transcript}", transcript[:12000]))
+    messages = [
+        ChatMessage(role="system", content="你是严谨的面试复盘引擎，只输出合法 JSON。"),
+        ChatMessage(role="user", content=prompt),
+    ]
+    last_err = None
+    for _ in range(max_retries + 1):
+        try:
+            data = _parse_json(llm.chat(messages, temperature=0.2, max_tokens=2400))
+            return _validate_review(data)
+        except (LLMError, ValueError, KeyError, TypeError) as exc:
+            last_err = exc
+    raise ValueError(f"面试复盘生成失败：{last_err}")
+
+
+def _validate_review(data: dict) -> dict:
+    dims = data.get("dimensions")
+    if not isinstance(dims, dict):
+        raise ValueError("missing dimensions")
+    clean_dims = {}
+    for key in ("基础知识", "项目深度", "沟通表达", "岗位匹配"):
+        try:
+            clean_dims[key] = max(0, min(100, int(dims.get(key, 0))))
+        except (TypeError, ValueError):
+            clean_dims[key] = 0
+    data["dimensions"] = clean_dims
+    data["overall"] = str(data.get("overall", ""))[:120]
+    impression = str(data.get("hire_impression", "待定"))
+    data["hire_impression"] = impression if impression in ("强推", "推荐", "待定", "不推荐") else "待定"
+    for key in ("highlights", "weaknesses", "advice"):
+        if not isinstance(data.get(key), list):
+            data[key] = []
+    questions = data.get("per_question")
+    if not isinstance(questions, list):
+        questions = []
+    data["per_question"] = [q for q in questions if isinstance(q, dict) and q.get("question")]
+    return data
+
+
 def parse_eval_tag(content: str) -> tuple[str, dict | None]:
     """Split an interviewer reply into (visible_text, hidden_eval).
 

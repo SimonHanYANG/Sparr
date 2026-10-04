@@ -604,7 +604,12 @@ def application_quiz_submit(request, pk):
         qdict = {"type": q.qtype, "stem": q.stem, "reference_answer": q.reference_answer,
                  "scoring_points": q.scoring_points, "score_full": q.score_full}
         if q.qtype == ExamQuestion.QType.SHORT:
-            score, judge = grade_short(llm, qdict, str(given or "")) if llm else (0.0, {"reason": "未配置大模型"})
+            if not str(given or "").strip():
+                score, judge = 0.0, {"reason": "未作答"}  # 空答不送 LLM，判卷提速
+            elif llm:
+                score, judge = grade_short(llm, qdict, str(given))
+            else:
+                score, judge = 0.0, {"reason": "未配置大模型"}
         else:
             score, judge = grade_objective(qdict, given)
         ExamAnswer.objects.create(question=q, content={"given": given},

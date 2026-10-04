@@ -139,3 +139,92 @@ export const generateReview = (id: number, force = false) =>
     method: 'POST',
     body: JSON.stringify({ force }),
   })
+
+// ---- 基础笔试（§5.3①）----
+
+export interface QuizQuestion {
+  id: number
+  seq: number
+  type: 'single' | 'multi' | 'short_answer'
+  difficulty: number
+  stem: string
+  options: string[]
+  score_full: number
+  knowledge_tag: string
+  reference_answer?: (number | string)[]
+  scoring_points?: string[]
+  my_answer?: { content: unknown; score: number; judge: { reason?: string; correct?: boolean } }
+}
+
+export interface QuizPaper {
+  questions: QuizQuestion[]
+  total_full: number
+  total_score: number | null
+  quiz_weak?: string[]
+  reused?: boolean
+}
+
+export const getQuiz = (id: number) => apiFetch<QuizPaper>(`/api/applications/${id}/quiz`)
+
+export const generateQuiz = (id: number, force = false) =>
+  apiFetch<QuizPaper>(`/api/applications/${id}/quiz`, {
+    method: 'POST',
+    body: JSON.stringify({ force }),
+  })
+
+export const submitQuiz = (id: number, answers: { question_id: number; content: unknown }[]) =>
+  apiFetch<QuizPaper>(`/api/applications/${id}/quiz/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ answers }),
+  })
+
+// ---- 代码笔试（§5.3②）----
+
+export interface CodingQuestion {
+  id: number
+  seq: number
+  stem: string
+  function_signature: string
+  examples: { input: string; output: string; note: string }[]
+  constraints: string
+  language_hint: string
+  score_full: number
+  my_answer?: {
+    code: string
+    language: string
+    score: number
+    judge: {
+      correctness?: { score: number; comment: string }
+      edge_cases?: { score: number; comment: string }
+      complexity?: { score: number; comment: string }
+      style?: { score: number; comment: string }
+      summary?: string
+      improved_solution?: string
+      reason?: string
+    }
+  }
+}
+
+export interface CodingPaper {
+  questions: CodingQuestion[]
+  total_full: number
+  total_score: number | null
+  reused?: boolean
+}
+
+export const getCoding = (id: number) => apiFetch<CodingPaper>(`/api/applications/${id}/coding`)
+
+export const generateCoding = (id: number, force = false) =>
+  apiFetch<CodingPaper>(`/api/applications/${id}/coding`, {
+    method: 'POST',
+    body: JSON.stringify({ force }),
+  })
+
+export const submitCoding = (
+  id: number,
+  answers: { question_id: number; code: string; language: string }[],
+) =>
+  apiFetch<CodingPaper>(`/api/applications/${id}/coding/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ answers }),
+  })

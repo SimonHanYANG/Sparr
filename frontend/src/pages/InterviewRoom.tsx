@@ -7,12 +7,16 @@ import {
   cancelTurn,
   generateReview,
   getApplication,
+  getCoding,
+  getQuiz,
   planStream,
   postTurn,
   type InterviewTurn,
   type PlanJson,
   type ReviewData,
 } from '../api/applications'
+import CodingStage from '../components/CodingStage'
+import QuizStage from '../components/QuizStage'
 
 const REVIEW_DIMS = ['基础知识', '项目深度', '沟通表达', '岗位匹配']
 
@@ -320,11 +324,23 @@ export default function InterviewRoom() {
   const [error, setError] = useState('')
   // 乐观上屏：发言立刻渲染，不等服务端落库回包（seq 与服务端对齐以便去重）
   const [pending, setPending] = useState<InterviewTurn[]>([])
+  const [tab, setTab] = useState<'quiz' | 'coding' | 'interview' | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: session } = useQuery({
     queryKey: ['application', sessionId],
     queryFn: () => getApplication(sessionId),
+    enabled: Number.isFinite(sessionId),
+  })
+  // 阶段完成状态（与阶段组件共享查询缓存）
+  const { data: quizInfo } = useQuery({
+    queryKey: ['quiz', sessionId],
+    queryFn: () => getQuiz(sessionId),
+    enabled: Number.isFinite(sessionId),
+  })
+  const { data: codingInfo } = useQuery({
+    queryKey: ['coding', sessionId],
+    queryFn: () => getCoding(sessionId),
     enabled: Number.isFinite(sessionId),
   })
 
@@ -391,6 +407,17 @@ export default function InterviewRoom() {
   )
   const started = shownTurns.length > 0
 
+  // 三段式：默认落在第一个未完成的阶段（也允许自由切换/重考）
+  const quizDone = quizInfo?.total_score != null
+  const codingDone = codingInfo?.total_score != null
+  const interviewDone = session.status === 'finished'
+  const autoTab: 'quiz' | 'coding' | 'interview' = !quizDone
+    ? 'quiz'
+    : !codingDone
+      ? 'coding'
+      : 'interview'
+  const activeTab = tab ?? autoTab
+
   return (
     <div className="mx-auto max-w-2xl pt-6">
       {/* header */}
@@ -408,6 +435,30 @@ export default function InterviewRoom() {
       <Link to="/applications" className="mt-1 inline-block text-[11.5px] text-faint hover:text-ink">
         ← {t('interview.backToList')}
       </Link>
+
+      {/* 三段式阶段条：宽松跳转，完成打勾 */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {(['quiz', 'coding', 'interview'] as const).map((k, i) => {
+          const done = k === 'quiz' ? quizDone : k === 'coding' ? codingDone : interviewDone
+          return (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] transition-colors ${
+                activeTab === k ? 'bg-ink text-white' : 'border border-line text-muted hover:text-ink'
+              }`}
+            >
+              <span>{done ? '✓' : i + 1}</span>
+              {t(`interview.stages.${k}`)}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeTab === 'quiz' && <QuizStage sessionId={sessionId} onGo={setTab} />}
+      {activeTab === 'coding' && <CodingStage sessionId={sessionId} onGo={setTab} />}
+      {activeTab === 'interview' && (
+        <>
 
       {/* plan gate — auto-generates with live progress (orbit loading card) */}
       {!session.has_plan && (
@@ -552,6 +603,8 @@ export default function InterviewRoom() {
               {t('interview.backToList')} →
             </Link>
           </div>
+        </>
+      )}
         </>
       )}
     </div>

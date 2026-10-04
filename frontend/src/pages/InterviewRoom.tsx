@@ -9,6 +9,7 @@ import {
   getApplication,
   getCoding,
   getQuiz,
+  getReport,
   planStream,
   postTurn,
   type InterviewTurn,
@@ -17,6 +18,7 @@ import {
 } from '../api/applications'
 import CodingStage from '../components/CodingStage'
 import QuizStage from '../components/QuizStage'
+import ReportSection from '../components/ReportSection'
 
 const REVIEW_DIMS = ['基础知识', '项目深度', '沟通表达', '岗位匹配']
 
@@ -324,7 +326,7 @@ export default function InterviewRoom() {
   const [error, setError] = useState('')
   // 乐观上屏：发言立刻渲染，不等服务端落库回包（seq 与服务端对齐以便去重）
   const [pending, setPending] = useState<InterviewTurn[]>([])
-  const [tab, setTab] = useState<'quiz' | 'coding' | 'interview' | null>(null)
+  const [tab, setTab] = useState<'quiz' | 'coding' | 'interview' | 'report' | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: session } = useQuery({
@@ -341,6 +343,12 @@ export default function InterviewRoom() {
   const { data: codingInfo } = useQuery({
     queryKey: ['coding', sessionId],
     queryFn: () => getCoding(sessionId),
+    enabled: Number.isFinite(sessionId),
+  })
+  // 报告查询（hooks 必须在条件早退之前声明）
+  const { data: reportInfo } = useQuery({
+    queryKey: ['report', sessionId],
+    queryFn: () => getReport(sessionId),
     enabled: Number.isFinite(sessionId),
   })
 
@@ -407,15 +415,18 @@ export default function InterviewRoom() {
   )
   const started = shownTurns.length > 0
 
-  // 三段式：默认落在第一个未完成的阶段（也允许自由切换/重考）
+  // 三段式 + 总结报告：默认落在第一个未完成的阶段（也允许自由切换/重考）；结束进总结
   const quizDone = quizInfo?.total_score != null
   const codingDone = codingInfo?.total_score != null
   const interviewDone = session.status === 'finished'
-  const autoTab: 'quiz' | 'coding' | 'interview' = !quizDone
+  const reportDone = reportInfo?.report != null
+  const autoTab: 'quiz' | 'coding' | 'interview' | 'report' = !quizDone
     ? 'quiz'
     : !codingDone
       ? 'coding'
-      : 'interview'
+      : !interviewDone
+        ? 'interview'
+        : 'report'
   const activeTab = tab ?? autoTab
 
   return (
@@ -436,10 +447,11 @@ export default function InterviewRoom() {
         ← {t('interview.backToList')}
       </Link>
 
-      {/* 三段式阶段条：宽松跳转，完成打勾 */}
+      {/* 三段式 + 总结报告阶段条：宽松跳转，完成打勾 */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {(['quiz', 'coding', 'interview'] as const).map((k, i) => {
-          const done = k === 'quiz' ? quizDone : k === 'coding' ? codingDone : interviewDone
+        {(['quiz', 'coding', 'interview', 'report'] as const).map((k, i) => {
+          const done =
+            k === 'quiz' ? quizDone : k === 'coding' ? codingDone : k === 'interview' ? interviewDone : reportDone
           return (
             <button
               key={k}
@@ -457,6 +469,7 @@ export default function InterviewRoom() {
 
       {activeTab === 'quiz' && <QuizStage sessionId={sessionId} onGo={setTab} />}
       {activeTab === 'coding' && <CodingStage sessionId={sessionId} onGo={setTab} />}
+      {activeTab === 'report' && <ReportSection sessionId={sessionId} />}
       {activeTab === 'interview' && (
         <>
 

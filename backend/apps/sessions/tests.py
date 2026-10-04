@@ -630,7 +630,12 @@ FAKE_JUDGE = {"correctness": {"score": 8, "comment": "思路正确"},
               "edge_cases": {"score": 6, "comment": "边界漏了空输入"},
               "complexity": {"score": 7, "comment": "O(n) 合理"},
               "style": {"score": 8, "comment": "命名清晰"},
-              "summary": "整体不错", "improved_solution": "def allow(key): ..."}
+              "strengths": ["用布尔返回清晰表达放行语义"],
+              "weaknesses": ["未处理 key 为空的边界"],
+              "summary": "整体不错",
+              "solution": {"approach": "用哈希表记录时间戳滑动窗口",
+                           "code": "def allow(key): ...",
+                           "explanation": "第 1 行建窗……"}}
 
 
 class CodingTests(SessionSetupMixin, APITestCase):
@@ -677,7 +682,8 @@ class CodingTests(SessionSetupMixin, APITestCase):
         self.assertEqual(mock.call_count, 1)  # 未作答的不送评审
         answered = body["questions"][0]["my_answer"]
         self.assertEqual(answered["judge"]["correctness"]["score"], 8)
-        self.assertIn("improved_solution", answered["judge"])
+        self.assertIn("approach", answered["judge"]["solution"])
+        self.assertTrue(answered["judge"]["strengths"])
         self.assertEqual(body["questions"][1]["my_answer"]["score"], 0)
 
     def test_coding_review_validation_clamps(self):

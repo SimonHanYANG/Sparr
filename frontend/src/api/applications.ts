@@ -198,8 +198,10 @@ export interface CodingQuestion {
       edge_cases?: { score: number; comment: string }
       complexity?: { score: number; comment: string }
       style?: { score: number; comment: string }
+      strengths?: string[]
+      weaknesses?: string[]
       summary?: string
-      improved_solution?: string
+      solution?: { approach: string; code: string; explanation: string }
       reason?: string
     }
   }

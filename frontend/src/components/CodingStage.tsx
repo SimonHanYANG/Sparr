@@ -55,7 +55,7 @@ const KEYWORDS: Record<string, string[]> = {
     'append', 'string', 'int', 'error'],
 }
 
-/** CodeMirror 6 编辑器：语法高亮 + 括号自动闭合 + 关键字补全（basicSetup）。 */
+/** CodeMirror 6 编辑器：语法高亮 + 括号自动闭合 + 关键字补全；高度放大便于看补全弹窗。 */
 function CodeBox({
   initial,
   language,
@@ -78,14 +78,14 @@ function CodeBox({
       state: EditorState.create({
         doc: initial,
         extensions: [
-          basicSetup, // 语法高亮/行号/撤销重做/括号闭合/补全基础设施
+          basicSetup,
           langExt(language),
           EditorState.languageData.of(() => [{ autocomplete: completions }]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString())
           }),
           EditorView.theme({
-            '&': { fontSize: '12.5px', maxHeight: '420px' },
+            '&': { fontSize: '12.5px', height: 'min(62vh, 560px)' },
             '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
             '.cm-content': { padding: '10px 0' },
             '.cm-gutters': { background: '#fafafa', border: 'none' },
@@ -105,7 +105,7 @@ function CodeBox({
 
 const REVIEW_DIMS = ['correctness', 'edge_cases', 'complexity', 'style'] as const
 
-/** 代码笔试（§5.3②）：场景题 + CodeMirror 作答 + AI 四维评审。 */
+/** 代码笔试（§5.3②）：LeetCode 式一题一屏（左题目 / 右代码），AI 评审先优点后不足。 */
 export default function CodingStage({
   sessionId,
   onGo,
@@ -115,6 +115,7 @@ export default function CodingStage({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [active, setActive] = useState(0)
   const [codes, setCodes] = useState<Record<number, string>>({})
   const [langs, setLangs] = useState<Record<number, string>>({})
   const [elapsed, setElapsed] = useState(0)
@@ -134,7 +135,7 @@ export default function CodingStage({
         (paper?.questions ?? []).map((q) => ({
           question_id: q.id,
           code: codes[q.id] ?? '',
-          language: langs[q.id] ?? q.language_hint ?? 'python',
+          language: langs[q.id] ?? q.my_answer?.language ?? q.language_hint ?? 'python',
         })),
       ),
     onSuccess: () => {
@@ -194,38 +195,111 @@ export default function CodingStage({
     )
 
   const answered = paper.total_score != null
-  const anyCode = paper.questions.some((q) => (codes[q.id] ?? '').trim())
+  const q = paper.questions[Math.min(active, paper.questions.length - 1)]
+  const anyCode = paper.questions.some((x) => (codes[x.id] ?? x.my_answer?.code ?? '').trim())
+  const lang = langs[q.id] ?? q.my_answer?.language ?? q.language_hint ?? 'python'
 
   return (
     <div className="mt-2">
       {answered && (
-        <div className="rounded-2xl border border-line px-6 py-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-line px-6 py-4">
           <p className="text-[15px] font-medium text-ink">
             {t('quiz.score', { score: Math.round(paper.total_score ?? 0), full: paper.total_full })}
           </p>
-          <p className="mt-1 text-[11px] text-faint">{t('coding.aiNote')}</p>
+          <p className="text-[11px] text-faint">{t('coding.aiNote')}</p>
           <button
             onClick={() => onGo('interview')}
-            className="mt-3 rounded-full bg-accent px-5 py-2 text-[12.5px] font-medium text-white hover:bg-accent-hover"
+            className="ml-auto rounded-full bg-accent px-5 py-2 text-[12.5px] font-medium text-white hover:bg-accent-hover"
           >
             {t('coding.nextInterview')} →
           </button>
         </div>
       )}
 
-      <div className="mt-3 space-y-4">
-        {paper.questions.map((q, i) => (
-          <CodingCard
-            key={q.id}
-            q={q}
-            index={i}
-            code={codes[q.id] ?? q.my_answer?.code ?? ''}
-            language={langs[q.id] ?? q.my_answer?.language ?? q.language_hint ?? 'python'}
-            editable={!answered}
-            onCode={(c) => setCodes((s) => ({ ...s, [q.id]: c }))}
-            onLang={(l) => setLangs((s) => ({ ...s, [q.id]: l }))}
-          />
+      {/* 题目切换（一题一屏） */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {paper.questions.map((x, i) => (
+          <button
+            key={x.id}
+            onClick={() => setActive(i)}
+            className={`rounded-full px-4 py-1.5 text-[12px] transition-colors ${
+              i === active ? 'bg-ink text-white' : 'border border-line text-muted hover:text-ink'
+            }`}
+          >
+            {t('coding.problem')} {i + 1}
+            {x.my_answer ? ' ✓' : ''}
+          </button>
         ))}
+      </div>
+
+      {/* LeetCode 式分栏：左题目 / 右代码 */}
+      <div className="mt-3 grid gap-4 lg:grid-cols-2">
+        {/* 左：题目 */}
+        <div className="rounded-2xl border border-line px-5 py-4">
+          <div className="flex flex-wrap items-center gap-x-2">
+            <p className="text-[12.5px] font-medium text-ink">
+              {t('coding.problem')} {q.seq}
+            </p>
+            <span className="text-[10.5px] text-faint">
+              · {q.score_full} 分 · AI {t('coding.reviewBadge')}
+            </span>
+          </div>
+          <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">{q.stem}</p>
+          {q.function_signature && (
+            <pre className="mt-2.5 overflow-x-auto rounded-xl bg-surface px-3.5 py-2 text-[11.5px] text-ink">
+              {q.function_signature}
+            </pre>
+          )}
+          {q.examples.length > 0 && (
+            <div className="mt-2.5 space-y-1">
+              {q.examples.map((ex, ei) => (
+                <p key={ei} className="text-[12px] leading-relaxed text-ink">
+                  <span className="text-muted">
+                    {t('coding.example')} {ei + 1}：
+                  </span>
+                  {ex.input} → {ex.output}
+                  {ex.note ? `（${ex.note}）` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+          {q.constraints && (
+            <p className="mt-2 text-[12px] leading-relaxed text-ink">
+              <span className="font-medium text-muted">{t('coding.constraints')}：</span>
+              {q.constraints}
+            </p>
+          )}
+        </div>
+
+        {/* 右：代码 */}
+        <div>
+          {answered ? (
+            <pre className="overflow-x-auto rounded-2xl border border-line bg-white px-4 py-3 text-[12px] leading-relaxed text-ink">
+              {q.my_answer?.code || t('coding.notSubmitted')}
+            </pre>
+          ) : (
+            <>
+              <div className="mb-1.5 flex items-center gap-2">
+                <select
+                  value={lang}
+                  onChange={(e) => setLangs((s) => ({ ...s, [q.id]: e.target.value }))}
+                  className="rounded-lg border border-line bg-white px-2 py-1 text-[11.5px] text-ink"
+                >
+                  {LANGS.map((l) => (
+                    <option key={l} value={l}>
+                      {LANG_LABELS[l]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <CodeBox
+                initial={codes[q.id] ?? q.my_answer?.code ?? ''}
+                language={lang}
+                onChange={(c) => setCodes((s) => ({ ...s, [q.id]: c }))}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {!answered && (
@@ -242,122 +316,101 @@ export default function CodingStage({
           </button>
         </>
       )}
+
+      {/* AI 评审（先优点后不足 + 带讲解的参考答案） */}
+      {q.my_answer?.judge && <ReviewCard q={q} />}
     </div>
   )
 }
 
-function CodingCard({
-  q,
-  index,
-  code,
-  language,
-  editable,
-  onCode,
-  onLang,
-}: {
-  q: CodingQuestion
-  index: number
-  code: string
-  language: string
-  editable: boolean
-  onCode: (c: string) => void
-  onLang: (l: string) => void
-}) {
+function ReviewCard({ q }: { q: CodingQuestion }) {
   const { t } = useTranslation()
-  const judge = q.my_answer?.judge
+  const judge = q.my_answer!.judge
+  const solution = judge.solution
   return (
-    <div className="rounded-2xl border border-line px-5 py-4">
-      <div className="flex flex-wrap items-center gap-x-2">
-        <p className="text-[12px] font-medium text-ink">
-          {t('coding.problem')} {index + 1}
-        </p>
-        <span className="text-[10.5px] text-faint">
-          · {q.score_full} 分 · AI {t('coding.reviewBadge')}
+    <div className="mt-4 rounded-2xl border border-line px-5 py-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p className="text-[13px] font-medium text-ink">{t('coding.reviewTitle')}</p>
+        {REVIEW_DIMS.map((d) => (
+          <span key={d} className="text-[11px] text-muted">
+            {t(`coding.dims.${d}`)}
+            <span className="ml-1 tabular-nums text-ink">{judge[d]?.score ?? 0}/10</span>
+          </span>
+        ))}
+        <span className="ml-auto text-[13px] font-medium tabular-nums text-accent">
+          {q.my_answer!.score}/{q.score_full}
         </span>
       </div>
-      <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">{q.stem}</p>
-      {q.function_signature && (
-        <pre className="mt-2 overflow-x-auto rounded-xl bg-surface px-3.5 py-2 text-[11.5px] text-ink">
-          {q.function_signature}
-        </pre>
+      {judge.summary && <p className="mt-2 text-[12.5px] leading-relaxed text-ink">{judge.summary}</p>}
+
+      {/* 优点 / 不足 */}
+      {(judge.strengths ?? []).length > 0 && (
+        <>
+          <p className="mt-3 text-[11.5px] font-medium text-emerald-700">{t('coding.strengths')}</p>
+          <ul className="mt-1 space-y-1">
+            {(judge.strengths ?? []).map((s, i) => (
+              <li key={i} className="text-[12px] leading-relaxed text-ink">
+                · {s}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
-      {q.examples.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {q.examples.map((ex, ei) => (
-            <p key={ei} className="text-[12px] leading-relaxed text-ink">
-              <span className="text-muted">
-                {t('coding.example')} {ei + 1}：
-              </span>
-              {ex.input} → {ex.output}
-              {ex.note ? `（${ex.note}）` : ''}
-            </p>
-          ))}
-        </div>
-      )}
-      {q.constraints && (
-        <p className="mt-1.5 text-[12px] leading-relaxed text-ink">
-          <span className="font-medium text-muted">{t('coding.constraints')}：</span>
-          {q.constraints}
-        </p>
+      {(judge.weaknesses ?? []).length > 0 && (
+        <>
+          <p className="mt-2.5 text-[11.5px] font-medium text-amber-700">{t('coding.weaknesses')}</p>
+          <ul className="mt-1 space-y-1">
+            {(judge.weaknesses ?? []).map((w, i) => (
+              <li key={i} className="text-[12px] leading-relaxed text-ink">
+                · {w}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
-      <div className="mt-3">
-        {editable ? (
-          <>
-            <div className="mb-1.5 flex items-center gap-2">
-              <select
-                value={language}
-                onChange={(e) => onLang(e.target.value)}
-                className="rounded-lg border border-line bg-white px-2 py-1 text-[11.5px] text-ink"
-              >
-                {LANGS.map((l) => (
-                  <option key={l} value={l}>
-                    {LANG_LABELS[l]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <CodeBox initial={code} language={language} onChange={onCode} />
-          </>
-        ) : (
-          q.my_answer?.code && (
-            <pre className="overflow-x-auto rounded-xl bg-surface px-3.5 py-2.5 text-[11.5px] leading-relaxed text-ink">
-              {q.my_answer.code}
-            </pre>
-          )
-        )}
+      {/* 四维批注 */}
+      <div className="mt-2.5 space-y-1">
+        {REVIEW_DIMS.filter((d) => judge[d]?.comment).map((d) => (
+          <p key={d} className="text-[11.5px] leading-relaxed text-muted">
+            · {t(`coding.dims.${d}`)}：{judge[d]?.comment}
+          </p>
+        ))}
       </div>
 
-      {/* AI 评审结果 */}
-      {judge && q.my_answer && (
-        <div className="mt-3 rounded-xl bg-surface px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {REVIEW_DIMS.map((d) => (
-              <span key={d} className="text-[11px] text-muted">
-                {t(`coding.dims.${d}`)}
-                <span className="ml-1 tabular-nums text-ink">{judge[d]?.score ?? 0}/10</span>
-              </span>
-            ))}
-            <span className="ml-auto text-[12px] font-medium tabular-nums text-accent">
-              {q.my_answer.score}/{q.score_full}
-            </span>
-          </div>
-          {judge.summary && <p className="mt-2 text-[12px] leading-relaxed text-ink">{judge.summary}</p>}
-          <div className="mt-2 space-y-1">
-            {REVIEW_DIMS.filter((d) => judge[d]?.comment).map((d) => (
-              <p key={d} className="text-[11px] leading-relaxed text-muted">
-                · {t(`coding.dims.${d}`)}：{judge[d]?.comment}
+      {/* 参考答案三件套：解题思路 + 参考代码 + 逐段解释 */}
+      {solution && (solution.approach || solution.code || solution.explanation) && (
+        <div className="mt-4 rounded-xl bg-surface px-4 py-3.5">
+          <p className="text-[12px] font-medium text-ink">{t('coding.solution')}</p>
+          {solution.approach && (
+            <>
+              <p className="mt-2.5 text-[11px] font-medium text-muted">
+                {t('coding.solutionApproach')}
               </p>
-            ))}
-            {judge.reason && <p className="text-[11px] text-muted">· {judge.reason}</p>}
-          </div>
-          {judge.improved_solution && (
-            <div className="mt-2.5">
-              <p className="text-[11px] font-medium text-muted">{t('coding.improved')}</p>
-              <pre className="mt-1 overflow-x-auto rounded-xl bg-white px-3.5 py-2 text-[11px] leading-relaxed text-ink">
-                {judge.improved_solution}
+              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-ink">
+                {solution.approach}
+              </p>
+            </>
+          )}
+          {solution.code && (
+            <>
+              <p className="mt-2.5 text-[11px] font-medium text-muted">
+                {t('coding.solutionCode')}
+              </p>
+              <pre className="mt-1 overflow-x-auto rounded-xl bg-white px-3.5 py-2.5 text-[11.5px] leading-relaxed text-ink">
+                {solution.code}
               </pre>
-            </div>
+            </>
+          )}
+          {solution.explanation && (
+            <>
+              <p className="mt-2.5 text-[11px] font-medium text-muted">
+                {t('coding.solutionExplanation')}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-ink">
+                {solution.explanation}
+              </p>
+            </>
           )}
         </div>
       )}

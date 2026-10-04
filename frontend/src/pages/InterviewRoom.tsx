@@ -419,7 +419,7 @@ export default function InterviewRoom() {
   const activeTab = tab ?? autoTab
 
   return (
-    <div className="mx-auto max-w-2xl pt-6">
+    <div className="mx-auto max-w-5xl pt-6">
       {/* header */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 className="text-[20px] font-semibold tracking-tight text-ink">{session.job_title}</h1>
@@ -472,7 +472,7 @@ export default function InterviewRoom() {
 
       {/* plan preview before start / resume banner after */}
       {session.has_plan && session.plan && !started && (
-        <div className="mt-5">
+        <div className="mx-auto mt-5 max-w-2xl">
           <PlanCard plan={session.plan} />
           <button
             onClick={() => send({ action: 'start' })}
@@ -485,14 +485,14 @@ export default function InterviewRoom() {
       )}
 
       {started && turns.length > 0 && turns.length <= 2 && !finished && (
-        <p className="mt-4 rounded-xl bg-surface px-4 py-2.5 text-[11.5px] text-muted">
+        <p className="mx-auto mt-4 max-w-2xl rounded-xl bg-surface px-4 py-2.5 text-[11.5px] text-muted">
           {t('interview.resumeBanner')}
         </p>
       )}
 
       {/* transcript */}
       {started && (
-        <div className="mt-5">
+        <div className="mx-auto mt-5 max-w-2xl">
           {shownTurns.map((turn) => (
             <TurnBubble key={turn.seq} turn={turn} />
           ))}
@@ -528,11 +528,11 @@ export default function InterviewRoom() {
         </div>
       )}
 
-      {error && <p className="mt-3 text-[12px] text-red-600">{error}</p>}
+      {error && <p className="mx-auto mt-3 max-w-2xl text-[12px] text-red-600">{error}</p>}
 
       {/* input + controls */}
       {session.has_plan && started && !finished && (
-        <div className="mt-4">
+        <div className="mx-auto mt-4 max-w-2xl">
           <div className="flex flex-wrap gap-2">
             {busy ? (
               /* 打断：随时打断面试官的输出（已流出部分保留） */

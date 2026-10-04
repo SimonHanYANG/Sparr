@@ -81,7 +81,7 @@ export default function QuizStage({
 
   if (!paper || gen.isPending)
     return (
-      <div className="mt-2">
+      <div className="mx-auto mt-2 max-w-3xl">
         <div className="orbit-wrap">
           <div className="rounded-2xl border border-line px-6 py-7">
             <p className="text-[13.5px] font-medium text-ink">{t('quiz.generating')}</p>
@@ -139,7 +139,7 @@ export default function QuizStage({
   const answeredCount = paper.questions.filter((x) => answers[x.id] !== undefined).length
 
   return (
-    <div className="mt-2">
+    <div className="mx-auto mt-2 max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[12px] text-muted">
           {t('quiz.answerHint', { count: total })}
@@ -281,7 +281,7 @@ function QuizResult({
 }) {
   const { t } = useTranslation()
   return (
-    <div className="mt-2">
+    <div className="mx-auto mt-2 max-w-3xl">
       <div className="rounded-2xl border border-line px-6 py-5">
         <p className="text-[15px] font-medium text-ink">
           {t('quiz.score', {

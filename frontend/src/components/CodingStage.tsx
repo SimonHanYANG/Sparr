@@ -293,6 +293,7 @@ export default function CodingStage({
                 </select>
               </div>
               <CodeBox
+                key={q.id} /* 每题独立编辑器：切题切换各自的代码，不共用一个框 */
                 initial={codes[q.id] ?? q.my_answer?.code ?? ''}
                 language={lang}
                 onChange={(c) => setCodes((s) => ({ ...s, [q.id]: c }))}

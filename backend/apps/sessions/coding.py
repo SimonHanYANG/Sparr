@@ -8,7 +8,7 @@ from core.llm_adapter import ChatMessage, LLMClient, LLMError, fast_completion_k
 
 from .interview import _parse_json
 
-CODING_PROMPT = """你是资深笔试出题人。请为报考「{job_title}」的候选人出 2 道代码笔试题（难度递进：第 1 题中等、第 2 题较难）。
+CODING_PROMPT = """你是资深笔试出题人。请为报考「{job_title}」的候选人出 3 道代码笔试题（难度递进：第 1 题中等、第 2 题较难、第 3 题最难）。
 
 只输出一个 JSON 对象（不要解释、不要代码块）：
 {
@@ -111,7 +111,7 @@ def _validate_coding(data: dict) -> list[dict]:
                      "reference_solution": str(q.get("reference_solution", ""))})
     if not kept:
         raise ValueError("no valid coding question")
-    return kept[:2]  # 两题封顶
+    return kept[:3]  # 三题封顶（出 3 取 3，抹平模型波动）
 
 
 def review_code(llm: LLMClient, question: dict, code: str, language: str,

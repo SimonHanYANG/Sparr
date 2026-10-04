@@ -4,8 +4,10 @@ import { javascript } from '@codemirror/lang-javascript'
 import { cpp } from '@codemirror/lang-cpp'
 import { go } from '@codemirror/lang-go'
 import { python } from '@codemirror/lang-python'
+import { completeFromList } from '@codemirror/autocomplete'
 import { EditorState } from '@codemirror/state'
-import { EditorView, lineNumbers } from '@codemirror/view'
+import { EditorView } from '@codemirror/view'
+import { basicSetup } from 'codemirror'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -27,7 +29,33 @@ const LANG_LABELS: Record<string, string> = {
 const langExt = (l: string) =>
   l === 'java' ? java() : l === 'javascript' ? javascript() : l === 'cpp' ? cpp() : l === 'go' ? go() : python()
 
-/** CodeMirror 6 编辑器（语言切换重建；改动回调上抛）。 */
+// 各语言关键字/常用内置 —— 代码补全词条
+const KEYWORDS: Record<string, string[]> = {
+  python: ['def', 'class', 'return', 'if', 'elif', 'else', 'for', 'while', 'break', 'continue',
+    'import', 'from', 'as', 'try', 'except', 'finally', 'raise', 'with', 'lambda', 'yield',
+    'async', 'await', 'pass', 'None', 'True', 'False', 'self', 'print', 'len', 'range',
+    'enumerate', 'zip', 'sorted', 'dict', 'list', 'set', 'tuple', 'str', 'int', 'float'],
+  java: ['public', 'private', 'protected', 'class', 'interface', 'extends', 'implements',
+    'static', 'final', 'void', 'int', 'long', 'double', 'boolean', 'char', 'String', 'new',
+    'return', 'if', 'else', 'for', 'while', 'switch', 'case', 'break', 'continue', 'try',
+    'catch', 'finally', 'throw', 'throws', 'import', 'package', 'null', 'true', 'false',
+    'ArrayList', 'HashMap', 'List', 'Map', 'Set'],
+  javascript: ['function', 'const', 'let', 'var', 'return', 'if', 'else', 'for', 'while', 'do',
+    'switch', 'case', 'break', 'continue', 'try', 'catch', 'finally', 'throw', 'new', 'class',
+    'extends', 'import', 'export', 'from', 'async', 'await', 'null', 'undefined', 'true',
+    'false', 'this', 'typeof', 'instanceof', 'Map', 'Set', 'Promise', 'console', 'log'],
+  cpp: ['int', 'long', 'double', 'float', 'char', 'bool', 'void', 'string', 'vector', 'map',
+    'unordered_map', 'set', 'unordered_set', 'pair', 'auto', 'const', 'static', 'class',
+    'struct', 'public', 'private', 'protected', 'return', 'if', 'else', 'for', 'while',
+    'switch', 'case', 'break', 'continue', 'try', 'catch', 'throw', 'new', 'delete',
+    'nullptr', 'true', 'false', 'using', 'namespace', 'std', 'size_t'],
+  go: ['func', 'package', 'import', 'var', 'const', 'type', 'struct', 'interface', 'map',
+    'chan', 'return', 'if', 'else', 'for', 'range', 'switch', 'case', 'default', 'break',
+    'continue', 'go', 'defer', 'select', 'nil', 'true', 'false', 'make', 'new', 'len', 'cap',
+    'append', 'string', 'int', 'error'],
+}
+
+/** CodeMirror 6 编辑器：语法高亮 + 括号自动闭合 + 关键字补全（basicSetup）。 */
 function CodeBox({
   initial,
   language,
@@ -43,17 +71,21 @@ function CodeBox({
 
   useEffect(() => {
     if (!host.current) return
+    const completions = completeFromList(
+      (KEYWORDS[language] ?? KEYWORDS.python).map((w) => ({ label: w, type: 'keyword' })),
+    )
     const view = new EditorView({
       state: EditorState.create({
         doc: initial,
         extensions: [
-          lineNumbers(),
+          basicSetup, // 语法高亮/行号/撤销重做/括号闭合/补全基础设施
           langExt(language),
+          EditorState.languageData.of(() => [{ autocomplete: completions }]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString())
           }),
           EditorView.theme({
-            '&': { fontSize: '12.5px', maxHeight: '360px' },
+            '&': { fontSize: '12.5px', maxHeight: '420px' },
             '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
             '.cm-content': { padding: '10px 0' },
             '.cm-gutters': { background: '#fafafa', border: 'none' },
@@ -252,16 +284,20 @@ function CodingCard({
       {q.examples.length > 0 && (
         <div className="mt-2 space-y-1">
           {q.examples.map((ex, ei) => (
-            <p key={ei} className="text-[11px] leading-relaxed text-muted">
-              {t('coding.example')} {ei + 1}：{ex.input} → {ex.output}
+            <p key={ei} className="text-[12px] leading-relaxed text-ink">
+              <span className="text-muted">
+                {t('coding.example')} {ei + 1}：
+              </span>
+              {ex.input} → {ex.output}
               {ex.note ? `（${ex.note}）` : ''}
             </p>
           ))}
         </div>
       )}
       {q.constraints && (
-        <p className="mt-1 text-[11px] text-faint">
-          {t('coding.constraints')}：{q.constraints}
+        <p className="mt-1.5 text-[12px] leading-relaxed text-ink">
+          <span className="font-medium text-muted">{t('coding.constraints')}：</span>
+          {q.constraints}
         </p>
       )}
 

@@ -230,3 +230,45 @@ export const submitCoding = (
     method: 'POST',
     body: JSON.stringify({ answers }),
   })
+
+// ---- 综合总结报告（§5.4）----
+
+export interface ResumeSuggestion {
+  id: number
+  field_path: string
+  original_text: string
+  suggested_text: string
+  reason: string
+  status: 'pending' | 'accepted' | 'rejected'
+  apply_note: string
+}
+
+export interface FinalReport {
+  id: number
+  overall_score: number
+  hire_recommendation: string
+  dimension_radar: Record<string, number>
+  stage_scores: Record<string, unknown>
+  per_stage_summary: { stage: string; score: string; summary: string }[]
+  highlights: string[]
+  weaknesses: string[]
+  improvement_plan: { area: string; action: string }[]
+  model_name: string
+  created_at: string
+  suggestions: ResumeSuggestion[]
+}
+
+export const getReport = (id: number) =>
+  apiFetch<{ report: FinalReport | null }>(`/api/applications/${id}/report`)
+
+export const generateReport = (id: number, force = false) =>
+  apiFetch<{ report: FinalReport; reused: boolean }>(`/api/applications/${id}/report`, {
+    method: 'POST',
+    body: JSON.stringify({ force }),
+  })
+
+export const decideSuggestion = (id: number, suggestionId: number, accept: boolean) =>
+  apiFetch<{ suggestion: ResumeSuggestion }>(
+    `/api/applications/${id}/report/suggestions/${suggestionId}/${accept ? 'accept' : 'reject'}`,
+    { method: 'POST' },
+  )

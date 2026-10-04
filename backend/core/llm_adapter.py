@@ -116,11 +116,18 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def validate_key(self) -> tuple[bool, str]:
-        """Minimal request to verify a user-supplied key (PLAN.md §5.1)."""
+        """Minimal request to verify a user-supplied key (PLAN.md §5.1).
+
+        注意思考模型（MiMo v2.6 系列）：极小 max_tokens 会被 reasoning 吞掉导致
+        正文为空——空内容不等于 key 无效，请求本身成功（认证通过）即视为可用。
+        """
         try:
-            self.chat([ChatMessage(role="user", content="hi")], max_tokens=1, temperature=0)
+            self.chat([ChatMessage(role="user", content="hi")], max_tokens=16, temperature=0,
+                      **fast_completion_kwargs(self))
             return True, "ok"
         except LLMError as exc:
+            if "empty content" in str(exc):
+                return True, "ok"  # 认证通过，只是正文被思考预算吞掉
             return False, str(exc)
 
 
